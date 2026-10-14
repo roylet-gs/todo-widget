@@ -244,12 +244,17 @@ def drawer_shows_seeded_tasks(app: App):
 
 @spec
 def task_detail_done_and_undo(app: App):
+    # Pinned so a stray click elsewhere on the Mac can't close the drawer (which also clears the selection).
+    app.cmd("set_pref", key="pinned", value=True)
     app.cmd("open_drawer")
     s = app.cmd("select", title="Reply to Sam")
     expect(s["selected"] == "Reply to Sam about the Q4 export format", f"selected: {s['selected']}")
     s = app.wait_state(lambda s: not next(t for t in s["open"] if t["title"].startswith("Reply to Sam"))["unread"],
                        "opening a task should mark it read")
     app.snapshot("drawer", "detail")
+    s = app.state()
+    expect(s["drawerOpen"] and s["selected"] == "Reply to Sam about the Q4 export format",
+           f"detail should still be showing before marking done: open={s['drawerOpen']} selected={s['selected']}")
     s = app.cmd("toggle_done", title="Reply to Sam")
     expect(s["selected"] is None, f"marking done from the detail should go back to the list: {s['selected']}")
     app.cmd("undo")
