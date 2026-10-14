@@ -187,6 +187,10 @@ final class E2EServer {
         case "drag_end":
             s.drawer.endTabDrag()
             dragStart = nil
+        case "simulate_update":
+            s.updater.simulate(latest: cmd["latest"] as? String ?? "99.0.0", brew: cmd["brew"] as? String ?? "/usr/bin/false")
+        case "update_now":
+            s.updater.updateNow()
         case "resize_begin":
             let f = s.drawer.drawerFrameNow
             resizeStart = NSPoint(x: s.prefs.edge == .right ? f.minX : f.maxX, y: f.midY)
@@ -247,6 +251,8 @@ final class E2EServer {
             "discoveryPrompt": m.store.renderDiscoveryPrompt(),
             "selected": m.selected?.title ?? NSNull(),
             "toast": m.toast?.text ?? NSNull(),
+            "update": ["available": s.updater.updateAvailable, "updating": s.updater.updating,
+                       "error": s.updater.updateError ?? ""] as [String: Any],
             "drawerOpen": s.drawer.isOpen,
             "tabFree": s.drawer.isFree,
             "tabFrame": rect(s.drawer.tabFrame),

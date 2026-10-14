@@ -43,13 +43,13 @@ final class DrawerController {
     private static let maxDrawerWidth: CGFloat = 900
     private static let edgeInset: CGFloat = 10
 
-    init(model: AppModel, prefs: Preferences) {
+    init(model: AppModel, prefs: Preferences, updater: Updater) {
         self.model = model
         self.prefs = prefs
         tabPanel = FloatingPanel(contentRect: NSRect(origin: .zero, size: Self.tabSize))
         drawerPanel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: Self.defaultDrawerWidth, height: 600))
         tabPanel.contentView = NSHostingView(rootView: EdgeTabView(model: model, prefs: prefs, controller: self))
-        drawerPanel.contentView = NSHostingView(rootView: DrawerView(model: model, prefs: prefs, controller: self))
+        drawerPanel.contentView = NSHostingView(rootView: DrawerView(model: model, prefs: prefs, updater: updater, controller: self))
         applyPrefs()
         tabPanel.orderFrontRegardless()
         observePrefs()
