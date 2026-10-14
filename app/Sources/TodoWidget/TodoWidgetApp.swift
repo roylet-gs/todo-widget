@@ -11,6 +11,7 @@ final class AppServices {
     let runner: Runner
     let notifier: Notifier
     let drawer: DrawerController
+    let updater: Updater
     private var settingsWindow: NSWindow?
     private var setupWindow: NSWindow?
     private var midnightTimer: Timer?
@@ -20,6 +21,7 @@ final class AppServices {
         model = try AppModel(prefs: prefs)
         runner = Runner(prefs: prefs, store: model.store)
         notifier = Notifier()
+        updater = Updater()
         drawer = DrawerController(model: model, prefs: prefs)
         notifier.onOpen = { [weak self] in self?.drawer.open() }
         notifier.onUndo = { [weak self] id in self?.model.undoGroup(id) }

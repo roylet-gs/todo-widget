@@ -1,0 +1,78 @@
+# On every merge to main: run CI, build a universal TodoWidget.app, attach it to a GitHub
+# Release, and regenerate the Homebrew cask (this repo is the tap). The version is the
+# workspace version from Cargo.toml, or the next patch past the latest release.
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # Skip the release commit this workflow pushes itself.
+    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: macos-26
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Pick version
+        id: v
+        run: |
+          LOCAL=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          PUBLISHED=$(gh release view --json tagName --jq .tagName 2>/dev/null | sed 's/^v//' || true)
+          PUBLISHED=${PUBLISHED:-0.0.0}
+          NEXT=$(python3 -c '
+          import sys
+          l, p = (tuple(map(int, v.split("."))) for v in sys.argv[1:])
+          print(".".join(map(str, l if l > p else (p[0], p[1], p[2] + 1))))
+          ' "$LOCAL" "$PUBLISHED")
+          echo "Cargo.toml: $LOCAL, published: $PUBLISHED, releasing: $NEXT"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Build universal app
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          perl -0pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/m' Cargo.toml
+          UNIVERSAL=1 ZIP=1 ./scripts/bundle-app.sh
+          build/TodoWidget.app/Contents/MacOS/todo --version
+          lipo -info build/TodoWidget.app/Contents/MacOS/TodoWidget
+
+      - name: GitHub Release
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          (cd build && shasum -a 256 "TodoWidget-v$VERSION.zip" > SHA256SUMS)
+          gh release create "v$VERSION" "build/TodoWidget-v$VERSION.zip" build/SHA256SUMS \
+            --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes
+
+      - name: Homebrew cask + version bump
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          SHA=$(shasum -a 256 "build/TodoWidget-v$VERSION.zip" | cut -d' ' -f1)
+          mkdir -p Casks
+          sed -e "s/VERSION/$VERSION/" -e "s/SHA256/$SHA/" packaging/todo-widget.rb.tmpl > Casks/todo-widget.rb
+          cargo update --workspace
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/todo-widget.rb Cargo.toml Cargo.lock
+          git commit -m "chore: release v$VERSION"
+          git push

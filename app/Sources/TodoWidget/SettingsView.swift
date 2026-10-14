@@ -95,7 +95,8 @@ struct CardRow<Trailing: View>: View {
 struct GeneralPane: View {
     let model: AppModel
     @Bindable var prefs: Preferences
-    @State private var loginItem = SMAppService.mainApp.status == .enabled
+    @State private var loginItem = LoginItem.isEnabled
+    @State private var loginMessage: String?
     @State private var cliMessage: String?
     @State private var confirmReset = false
 
@@ -148,12 +149,17 @@ struct GeneralPane: View {
                     .frame(width: 170).labelsHidden()
             }
             Divider()
-            CardRow(title: "Open at login") {
-                Toggle("", isOn: $loginItem).toggleStyle(.switch).labelsHidden()
-                    .onChange(of: loginItem) { _, on in
-                        do { if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
-                        catch { loginItem = SMAppService.mainApp.status == .enabled }
+            CardRow(title: "Open at login", detail: loginMessage ?? "Start Todo Widget automatically when you log in to your Mac.") {
+                HStack(spacing: 10) {
+                    if LoginItem.needsApproval {
+                        Button("Open Login Items") { LoginItem.openSystemSettings() }.buttonStyle(.glass).controlSize(.small)
                     }
+                    Toggle("", isOn: $loginItem).toggleStyle(.switch).labelsHidden()
+                        .onChange(of: loginItem) { _, on in
+                            loginMessage = LoginItem.set(on)
+                            loginItem = LoginItem.isEnabled || LoginItem.needsApproval
+                        }
+                }
             }
         }
         Card {
@@ -171,6 +177,7 @@ struct GeneralPane: View {
             }
             .padding(16)
         }
+        if let updater = AppServices.shared?.updater { UpdatesCard(updater: updater) }
         Card {
             CardRow(title: "Reset Todo Widget", detail: "Clears settings, sources and prompts, then runs setup again. You choose whether to keep your tasks.") {
                 Button("Reset…", role: .destructive) { confirmReset = true }
@@ -584,5 +591,53 @@ struct HistoryPane: View {
         case "archive": "⌫"
         default: "✎"
         }
+    }
+}
+
+// MARK: - Updates
+
+struct UpdatesCard: View {
+    let updater: Updater
+    @State private var copied = false
+
+    var body: some View {
+        Card {
+            CardRow(title: "Version \(updater.current)", detail: detail) {
+                HStack(spacing: 8) {
+                    Button(updater.checking ? "Checking…" : "Check now") { updater.check(force: true) }
+                        .buttonStyle(.glass).disabled(updater.checking)
+                    if updater.updateAvailable {
+                        if updater.method == .homebrew {
+                            Button(updater.updating ? "Updating…" : "Update to \(updater.latest ?? "")") { updater.updateNow() }
+                                .buttonStyle(.glassProminent).disabled(updater.updating)
+                        } else {
+                            Button("Get \(updater.latest ?? "")") { updater.openReleasePage() }.buttonStyle(.glassProminent)
+                        }
+                    }
+                }
+            }
+            if updater.updateAvailable {
+                Divider()
+                HStack {
+                    Text(updater.method.hint).font(.caption.monospaced()).textSelection(.enabled)
+                    Spacer()
+                    Button(copied ? "Copied" : "Copy") {
+                        Integrations.copy(updater.method.hint)
+                        copied = true
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.tint).font(.caption)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+            }
+        }
+    }
+
+    private var detail: String {
+        if updater.updating { return "Updating with Homebrew. The app will restart when it's done." }
+        if updater.updateAvailable { return "Version \(updater.latest ?? "") is available." }
+        if let checked = updater.lastChecked {
+            return "Up to date. Checked \(clockTime(Int64(checked.timeIntervalSince1970 * 1000)))."
+        }
+        return "Checks GitHub for new releases every 6 hours."
     }
 }

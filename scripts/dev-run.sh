@@ -8,7 +8,7 @@ if ! out=$(cd "$ROOT/app" && swift build -c release 2>&1); then
   exit 1
 fi
 echo "$out" | grep -E "warning: " | grep -v todo_core.swift || true
-cp "$ROOT/app/.build/release/TodoWidget" "$ROOT/build/TodoWidget.app/Contents/MacOS/TodoWidget"
+cp "$(cd "$ROOT/app" && swift build -c release --show-bin-path)/TodoWidget" "$ROOT/build/TodoWidget.app/Contents/MacOS/TodoWidget"
 codesign --force -s - "$ROOT/build/TodoWidget.app" 2>/dev/null
 pkill -f "TodoWidget.app/Contents/MacOS/TodoWidget" 2>/dev/null || true
 sleep 0.5

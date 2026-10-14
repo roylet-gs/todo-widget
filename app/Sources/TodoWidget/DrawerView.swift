@@ -125,6 +125,7 @@ struct TaskListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let updater = AppServices.shared?.updater, updater.updateAvailable { updateBanner(updater) }
             if !model.recentRuns.isEmpty { runStrip }
             quickAdd
             ScrollView {
@@ -175,13 +176,19 @@ struct TaskListView: View {
                         .disabled(runner.isRunning)
                     }
                     Button { prefs.pinned.toggle() } label: {
-                        Image(systemName: prefs.pinned ? "pin.fill" : "pin")
+                        Image(systemName: prefs.pinned ? "pin.fill" : "pin").frame(width: 16, height: 16)
                     }
                     .buttonStyle(.glass)
+                    .buttonBorderShape(.roundedRectangle(radius: 8))
+                    .focusEffectDisabled()
                     .help(prefs.pinned ? "Unpin: close when the pointer leaves" : "Pin the drawer open")
                     .accessibilityLabel(prefs.pinned ? "Unpin drawer" : "Pin drawer open")
-                    Button { AppServices.shared?.showSettings() } label: { Image(systemName: "slider.horizontal.3") }
+                    Button { AppServices.shared?.showSettings() } label: {
+                        Image(systemName: "slider.horizontal.3").frame(width: 16, height: 16)
+                    }
                         .buttonStyle(.glass)
+                        .buttonBorderShape(.roundedRectangle(radius: 8))
+                        .focusEffectDisabled()
                         .accessibilityLabel("Settings")
                 }
             }
@@ -189,6 +196,24 @@ struct TaskListView: View {
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .padding(.bottom, 10)
+    }
+
+    // MARK: update
+
+    private func updateBanner(_ updater: Updater) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down.circle").foregroundStyle(.tint)
+            Text("Todo Widget \(updater.latest ?? "") is available").font(.caption.weight(.semibold))
+            Spacer(minLength: 4)
+            Button(updater.updating ? "Updating…" : (updater.method == .homebrew ? "Update" : "Get it")) {
+                if updater.method == .homebrew { updater.updateNow() } else { updater.openReleasePage() }
+            }
+            .buttonStyle(.glass).controlSize(.small).disabled(updater.updating)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 
     // MARK: what changed

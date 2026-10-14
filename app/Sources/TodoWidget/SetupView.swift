@@ -41,6 +41,7 @@ struct SetupView: View {
     @State private var hermesStatus: String?
     @State private var cliStatus: String?
     @State private var copied: String?
+    @State private var openAtLogin = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -216,6 +217,14 @@ struct SetupView: View {
                  ? "The first built-in run happens at the next scheduled time, or press Run now in the drawer."
                  : "Tasks will appear after your agent's first scheduled run. You can also add them yourself.")
                 .foregroundStyle(.secondary)
+            Toggle(isOn: $openAtLogin) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Open Todo Widget when I log in").fontWeight(.semibold)
+                    Text("So your list is always there. You can change this in Settings › General.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .padding(.top, 8)
         }
     }
 
@@ -245,6 +254,7 @@ struct SetupView: View {
     }
 
     private func finish() {
+        if openAtLogin != LoginItem.isEnabled { LoginItem.set(openAtLogin) }
         prefs.setupComplete = true
         onFinish()
     }
