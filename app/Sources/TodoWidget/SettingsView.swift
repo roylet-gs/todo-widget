@@ -2,12 +2,13 @@ import ServiceManagement
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, sources, prompt, schedule, history
+    case general, keyboard, sources, prompt, schedule, history
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var icon: String {
         switch self {
         case .general: "gearshape"
+        case .keyboard: "keyboard"
         case .sources: "tray.2"
         case .prompt: "text.quote"
         case .schedule: "clock"
@@ -34,6 +35,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     switch tab {
                     case .general: GeneralPane(model: model, prefs: prefs)
+                    case .keyboard: KeyboardPane(prefs: prefs)
                     case .sources: SourcesPane(model: model)
                     case .prompt: PromptPane(model: model)
                     case .schedule: SchedulePane(model: model, prefs: prefs, runner: runner)
@@ -198,6 +200,142 @@ struct GeneralPane: View {
             Text(v).font(.caption.monospaced()).textSelection(.enabled).lineLimit(2)
         }
         .font(.callout)
+    }
+}
+
+// MARK: - Keyboard
+
+struct KeyboardPane: View {
+    @Bindable var prefs: Preferences
+
+    var body: some View {
+        PaneHeader(title: "Keyboard", subtitle: "Run the widget without the mouse. Click a shortcut, then press the keys you want.")
+        Card {
+            CardRow(title: KeyAction.toggleWidget.title, detail: "Works from any app.") {
+                HStack(spacing: 10) {
+                    Picker("", selection: toggleStyle) {
+                        ForEach(Mod.allCases.reversed()) { m in Text("Double-tap \(m.symbol) \(m.name)").tag(Optional(m)) }
+                        Divider()
+                        Text("Shortcut").tag(Mod?.none)
+                    }
+                    .labelsHidden().frame(width: 190)
+                    if prefs.key(.toggleWidget).doubleTap == nil {
+                        ShortcutRecorder(prefs: prefs, action: .toggleWidget)
+                    }
+                }
+            }
+            if prefs.key(.toggleWidget).doubleTap != nil, let hotkey = AppServices.shared?.hotkey {
+                Divider()
+                CardRow(title: "Accessibility access",
+                        detail: hotkey.accessibilityGranted
+                            ? "Allowed. macOS lets the widget see the double tap while you use other apps."
+                            : "macOS needs this before the widget can see a double tap while you use other apps. A shortcut doesn't need it.") {
+                    if hotkey.accessibilityGranted {
+                        Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else {
+                        Button("Grant access") { hotkey.requestAccess() }.glassButton()
+                    }
+                }
+            }
+        }
+        ForEach(KeyGroup.allCases.filter { $0 != .global }, id: \.self) { g in
+            Text(g.rawValue).font(.headline).padding(.top, 4)
+            Card {
+                let actions = KeyAction.allCases.filter { $0.group == g }
+                ForEach(Array(actions.enumerated()), id: \.element) { i, a in
+                    if i > 0 { Divider() }
+                    CardRow(title: a.title, detail: conflictText(a)) {
+                        ShortcutRecorder(prefs: prefs, action: a)
+                    }
+                }
+            }
+        }
+        Card {
+            CardRow(title: "Show key hints", detail: "Key caps on buttons and a row of shortcuts along the bottom of the list.") {
+                Toggle("", isOn: $prefs.showKeyHints).toggleStyle(.switch).labelsHidden()
+            }
+            Divider()
+            CardRow(title: "Restore default shortcuts") {
+                Button("Restore defaults") { prefs.keymap = Keymap() }
+                    .glassButton()
+                    .disabled(prefs.keymap == Keymap())
+            }
+        }
+    }
+
+    private func conflictText(_ a: KeyAction) -> String? {
+        let c = prefs.keymap.conflicts(for: a)
+        guard !c.isEmpty else { return nil }
+        return "⚠︎ Also used by \(c.map(\.title).joined(separator: ", ")). Only one of them will run."
+    }
+
+    /// The modifier to double-tap, or nil for an ordinary shortcut.
+    private var toggleStyle: Binding<Mod?> {
+        Binding {
+            prefs.key(.toggleWidget).doubleTap
+        } set: { m in
+            if let m {
+                prefs.keymap.set(KeyBinding(doubleTap: m), for: .toggleWidget)
+            } else if prefs.key(.toggleWidget).doubleTap != nil {
+                prefs.keymap.set(KeyBinding("space", [.control, .option]), for: .toggleWidget)
+            }
+        }
+    }
+}
+
+/// Shows an action's keys; click it, then press new ones. Esc cancels.
+struct ShortcutRecorder: View {
+    @Bindable var prefs: Preferences
+    let action: KeyAction
+    @State private var recording = false
+    @State private var monitor: Any?
+    @State private var message: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let message { Text(message).font(.caption).foregroundStyle(.orange) }
+            Button { recording ? stop() : start() } label: {
+                Text(recording ? "Press keys…" : prefs.key(action).spoken)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .frame(minWidth: 90)
+            }
+            .glassButton(prominent: recording)
+            .accessibilityLabel("\(action.title) shortcut: \(prefs.key(action).spoken)")
+            .accessibilityHint("Click, then press the new keys")
+            Button { prefs.keymap.reset(action) } label: { Image(systemName: "arrow.uturn.backward") }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .help("Reset to \(action.defaultBinding.spoken)")
+                .accessibilityLabel("Reset to default")
+                .opacity(prefs.keymap.isDefault(action) ? 0 : 1)
+                .disabled(prefs.keymap.isDefault(action))
+        }
+        .onDisappear(perform: stop)
+    }
+
+    private func start() {
+        message = nil
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let b = event.keyCode == 53 ? nil : KeyBinding(event: event)  // Esc cancels
+            MainActor.assumeIsolated { record(b) }
+            return nil
+        }
+    }
+
+    private func record(_ b: KeyBinding?) {
+        guard let b else { stop(); return }
+        if action == .toggleWidget && b.mods.filter({ $0 != .shift }).isEmpty {
+            message = "Add ⌘, ⌥ or ⌃ so typing isn't affected"
+            return
+        }
+        prefs.keymap.set(b, for: action)
+        stop()
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        recording = false
     }
 }
 

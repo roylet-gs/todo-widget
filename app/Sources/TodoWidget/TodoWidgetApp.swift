@@ -12,6 +12,7 @@ final class AppServices {
     let notifier: Notifier
     let drawer: DrawerController
     let updater: Updater
+    let hotkey: HotkeyMonitor
     private var settingsWindow: NSWindow?
     private var setupWindow: NSWindow?
     private var e2e: E2EServer?
@@ -24,6 +25,7 @@ final class AppServices {
         notifier = Notifier()
         updater = Updater()
         drawer = DrawerController(model: model, prefs: prefs)
+        hotkey = HotkeyMonitor(prefs: prefs, onToggle: { [weak drawer] in drawer?.toggle() })
         notifier.onOpen = { [weak self] in self?.drawer.open() }
         notifier.onUndo = { [weak self] id in self?.model.undoGroup(id) }
         model.onRunsFinished = { [weak self] runs in self?.notifier.check(runs) }
@@ -183,8 +185,9 @@ struct MenuLabel: View {
 struct MenuContent: View {
     var body: some View {
         if let s = AppServices.shared {
-            Button(s.drawer.isOpen ? "Close drawer" : "Open drawer") { s.drawer.toggle() }
-                .keyboardShortcut("t", modifiers: [.command, .option])
+            let key = s.prefs.key(.toggleWidget)
+            Button("\(s.drawer.isOpen ? "Close drawer" : "Open drawer")\(key.doubleTap == nil ? "" : "  (\(key.spoken))")") { s.drawer.toggle() }
+                .menuShortcut(s.prefs, .toggleWidget)
             if s.prefs.runnerEnabled {
                 Button(s.runner.isRunning ? "Running…" : "Run agent now") { s.runner.runNow() }
                     .disabled(s.runner.isRunning)

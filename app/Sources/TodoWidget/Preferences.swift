@@ -83,6 +83,10 @@ final class Preferences {
     var runnerModel: String { didSet { d.set(runnerModel, forKey: "runnerModel") } }
     var runnerAllowedTools: String { didSet { d.set(runnerAllowedTools, forKey: "runnerAllowedTools") } }
 
+    // Keyboard
+    var keymap: Keymap { didSet { d.set(keymap.json, forKey: "keymap") } }
+    var showKeyHints: Bool { didSet { d.set(showKeyHints, forKey: "showKeyHints") } }
+
     static let defaultAllowedTools = [
         "mcp__todo__*",
         "mcp__claude_ai_Slack__slack_read_*", "mcp__claude_ai_Slack__slack_search_*",
@@ -102,12 +106,14 @@ final class Preferences {
         runnerEnabled = d.bool(forKey: "runnerEnabled")
         runnerModel = d.string(forKey: "runnerModel") ?? "sonnet"
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
+        keymap = Keymap(json: d.string(forKey: "keymap"))
+        showKeyHints = d.object(forKey: "showKeyHints") as? Bool ?? true
         apply()
     }
 
     static let keys = ["appearance", "windowLevel", "edge", "tabY", "tabDisplay", "clearDone", "pinned", "runnerEnabled",
                        "runnerModel",
-                       "runnerAllowedTools", "runnerLastRun", "runnerLog", "setupComplete"]
+                       "runnerAllowedTools", "runnerLastRun", "runnerLog", "setupComplete", "keymap", "showKeyHints"]
 
     /// Forget every preference and return to defaults (used by Reset).
     func resetToDefaults() {
@@ -122,6 +128,8 @@ final class Preferences {
         runnerEnabled = d.bool(forKey: "runnerEnabled")
         runnerModel = d.string(forKey: "runnerModel") ?? "sonnet"
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
+        keymap = Keymap(json: d.string(forKey: "keymap"))
+        showKeyHints = d.object(forKey: "showKeyHints") as? Bool ?? true
         apply()
     }
 

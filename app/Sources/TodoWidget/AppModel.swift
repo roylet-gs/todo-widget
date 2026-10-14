@@ -26,6 +26,15 @@ final class AppModel {
     private(set) var sources: [Source] = []
 
     var selectedId: String?
+    /// The keyboard cursor in the list (separate from `selectedId`, which shows a task's detail).
+    var highlightedId: String?
+    var doneExpanded = false
+    /// The keyboard shortcuts overlay.
+    var showShortcuts = false
+    /// Requests from the keyboard handler to views that own the focus and edit state.
+    var wantsQuickAdd = false
+    var wantsEdit = false
+    var wantsSave = false
     var toast: Toast?
     var error: String?
 
@@ -50,6 +59,39 @@ final class AppModel {
 
     var unreadCount: Int { open.filter(\.unread).count }
     var selected: TodoTask? { (open + done).first { $0.id == selectedId } }
+    var highlighted: TodoTask? { (open + done).first { $0.id == highlightedId } }
+
+    // MARK: keyboard cursor
+
+    /// Rows in the order they appear in the list.
+    var visibleOrder: [TodoTask] { open + (doneExpanded ? done : []) }
+
+    func moveHighlight(by delta: Int) {
+        let rows = visibleOrder
+        guard !rows.isEmpty else { highlightedId = nil; return }
+        guard let i = rows.firstIndex(where: { $0.id == highlightedId }) else {
+            highlightedId = (delta >= 0 ? rows.first : rows.last)?.id
+            return
+        }
+        highlightedId = rows[min(max(i + delta, 0), rows.count - 1)].id
+    }
+
+    func highlightEnd(last: Bool) {
+        highlightedId = (last ? visibleOrder.last : visibleOrder.first)?.id
+    }
+
+    /// Keep the cursor on a visible row (the first one if it has gone).
+    func ensureHighlight() {
+        if !visibleOrder.contains(where: { $0.id == highlightedId }) { highlightedId = visibleOrder.first?.id }
+    }
+
+    /// The row the cursor should land on once `id` leaves its place: the next one, else the previous.
+    func neighbor(of id: String) -> String? {
+        let rows = visibleOrder
+        guard let i = rows.firstIndex(where: { $0.id == id }) else { return nil }
+        if i + 1 < rows.count { return rows[i + 1].id }
+        return i > 0 ? rows[i - 1].id : nil
+    }
 
     func reload() {
         do {
@@ -112,6 +154,7 @@ final class AppModel {
 
     func select(_ task: TodoTask?) {
         selectedId = task?.id
+        if let task { highlightedId = task.id }
         if let task, task.unread { try? store.markRead(id: task.id) }
     }
 

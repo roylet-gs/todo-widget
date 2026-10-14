@@ -115,6 +115,12 @@ struct SetupView: View {
                 action: notificationsOK ? "Allowed" : "Allow") {
                 Notifier.requestPermission { notificationsOK = $0 }
             }
+            if let hotkey = AppServices.shared?.hotkey, hotkey.needsAccessibility {
+                row("Keyboard", "Double-tap \(prefs.key(.toggleWidget).doubleTap?.symbol ?? "⌘") in any app to show or hide the widget. Needs Accessibility access.",
+                    status: nil, ok: hotkey.accessibilityGranted, action: hotkey.accessibilityGranted ? "Allowed" : "Allow") {
+                    hotkey.requestAccess()
+                }
+            }
             row("todo command", "Links the CLI into ~/.local/bin for you and your scripts.", status: cliStatus, ok: cliStatus?.hasPrefix("Linked") == true,
                 action: "Install") {
                 cliStatus = Integrations.installCLI().message

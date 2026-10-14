@@ -40,6 +40,10 @@ You can also open **TodoWidget** from Spotlight (⌘ Space) or the Applications 
 That's it. Your list lives in the small tab on the edge of your screen: click it to open the list, drag it to
 move it to the other side. You can run setup again any time from Settings › General.
 
+**Keyboard:** double-tap ⌘ in any app to show or hide the list (macOS asks for Accessibility access the first
+time). Then ↑ ↓ select a task, ↩ opens it, Space marks it done, ⌫ deletes it (⌘Z undoes), Esc goes back, and
+? lists every shortcut. Change any of them in Settings › Keyboard.
+
 **Update:** the app tells you when a new version is out and can update itself (Settings › General), or run
 `brew update && brew upgrade --cask todo-widget`.
 

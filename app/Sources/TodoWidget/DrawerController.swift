@@ -33,6 +33,7 @@ final class DrawerController {
     private(set) var isDraggingTab = false
     private var dragOffset: NSPoint?
     private var clickMonitors: [Any] = []
+    @ObservationIgnored private(set) lazy var keys = DrawerKeys(model: model, prefs: prefs, controller: self)
     /// E2E: a synthetic pointer location used instead of the real mouse while dragging.
     var simulatedMouse: NSPoint?
     private var currentMouse: NSPoint { simulatedMouse ?? NSEvent.mouseLocation }
@@ -231,13 +232,17 @@ final class DrawerController {
         }
         drawerPanel.makeKey()
         installClickAway()
+        keys.install(for: drawerPanel)
+        model.ensureHighlight()
     }
 
     func close() {
         guard isOpen else { return }
         isOpen = false
         removeClickAway()
+        keys.remove()
         model.selectedId = nil
+        model.showShortcuts = false
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
             drawerPanel.animator().setFrame(drawerFrame(open: false), display: true)
@@ -256,6 +261,14 @@ final class DrawerController {
     /// Give the drawer keyboard focus (e.g. when typing in quick add or editing).
     func engage() {
         drawerPanel.makeKey()
+    }
+
+    /// A text field in the drawer is being edited (its field editor is first responder).
+    var firstResponderIsText: Bool { drawerPanel.firstResponder is NSText }
+
+    /// Leave the text field being edited, so plain keys go back to the list.
+    func endTyping() {
+        drawerPanel.makeFirstResponder(nil)
     }
 
     /// When unpinned, a click anywhere outside the drawer (other apps, the desktop, or our

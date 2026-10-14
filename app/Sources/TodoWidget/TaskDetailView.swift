@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TaskDetailView: View {
     let model: AppModel
+    let prefs: Preferences
     let controller: DrawerController
     let task: TodoTask
 
@@ -17,10 +18,14 @@ struct TaskDetailView: View {
         VStack(spacing: 0) {
             HStack {
                 Button { model.select(nil) } label: {
-                    Label("Today", systemImage: "chevron.left").font(.callout.weight(.semibold))
+                    HStack(spacing: 6) {
+                        Label("Today", systemImage: "chevron.left").font(.callout.weight(.semibold))
+                        if prefs.showKeyHints { KeyCap(prefs.key(.back).display) }
+                    }
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
+                .keyHelp(prefs, "Back to the list", .back)
                 Spacer()
                 if let rank { Text("#\(rank) of \(model.open.count)").font(.caption).foregroundStyle(.secondary) }
             }
@@ -58,20 +63,47 @@ struct TaskDetailView: View {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
                     Button { model.toggleDone(task) } label: {
-                        Text(task.isDone ? "Reopen" : "Mark done").frame(maxWidth: .infinity)
+                        HStack(spacing: 6) {
+                            Text(task.isDone ? "Reopen" : "Mark done")
+                            if prefs.showKeyHints { KeyCap(prefs.key(.toggleDone).display, onAccent: true) }
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                     .glassButton(prominent: true)
-                    Button(editing ? "Save" : "Edit") {
+                    .keyHelp(prefs, task.isDone ? "Reopen" : "Mark done", .toggleDone)
+                    Button {
                         if editing { save() } else { startEdit() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(editing ? "Save" : "Edit")
+                            if prefs.showKeyHints { KeyCap(prefs.key(editing ? .save : .edit).display) }
+                        }
                     }
                     .glassButton()
-                    Button(role: .destructive) { model.delete(task) } label: { Image(systemName: "trash") }
-                        .glassButton()
-                        .accessibilityLabel("Delete")
+                    .keyHelp(prefs, editing ? "Save" : "Edit", editing ? .save : .edit)
+                    Button(role: .destructive) { model.delete(task) } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash")
+                            if prefs.showKeyHints { KeyCap(prefs.key(.delete).display) }
+                        }
+                    }
+                    .glassButton()
+                    .keyHelp(prefs, "Delete", .delete)
+                    .accessibilityLabel("Delete")
                 }
                 .controlSize(.large)
             }
             .padding(14)
+        }
+        .onChange(of: model.wantsEdit) { _, w in
+            guard w else { return }
+            model.wantsEdit = false
+            if !editing { startEdit() }
+        }
+        .onChange(of: model.wantsSave) { _, w in
+            guard w else { return }
+            model.wantsSave = false
+            if editing { save() }
         }
     }
 
