@@ -107,7 +107,7 @@ def seed(env, db):
     todo("add", "Update the estimate on CDI-88", "--due", "Fri", "--source", "Linear")
     agent_run(env, "Claude Code", "3 new from Slack, GitHub and Calendar", [
         dict(source_ref="slack:sam-q4", title="Reply to Sam about the Q4 export format", priority=1, due="Today",
-             source="Slack", source_url="https://slack.com/", source_from="Sam · #cde-ops · 8:40",
+             source="Slack", source_url="https://acme.slack.com/archives/C0123/p1700000000000100", source_from="Sam · #cde-ops · 8:40",
              excerpt="Hey, can we lock the Q4 export format today? We freeze the pipeline tomorrow morning.",
              summary="Sam needs a yes or no on CSV vs Parquet before their pipeline freeze.",
              rationale="A direct ask with a same-day deadline that blocks another team."),
@@ -116,7 +116,8 @@ def seed(env, db):
         dict(source_ref="cal:thu", title="Prep notes for Thursday customer call", priority=2, due="Thu", source="Calendar"),
     ])
     agent_run(env, "Hermes", "2 new from Linear and Gmail", [
-        dict(source_ref="linear:CONNECT-210", title="Answer the triage question on CONNECT-210", priority=2, source="Linear"),
+        dict(source_ref="linear:CONNECT-210", title="Answer the triage question on CONNECT-210", priority=2, source="Linear",
+             source_url="https://linear.app/acme/issue/CONNECT-210/retry-triage"),
         dict(source_ref="gmail:expenses", title="Submit September expenses", priority=3, due="Oct 20", source="Gmail"),
     ])
     # Show the seeded runs in the "what changed" strip (as if not yet seen).
@@ -401,6 +402,35 @@ def keyboard_navigate_and_open(app: App):
            f"esc should close the sheet, not the drawer: sheet={s['shortcutsOpen']} open={s['drawerOpen']} handled={s['handled']} typing={s['typing']}")
     s = app.cmd("key", key="escape")
     expect(not s["drawerOpen"], "esc on the list should close the drawer")
+
+
+@spec
+def keyboard_open_source(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    app.cmd("open_drawer")
+    # From the list: highlight the Slack task and open its source without opening the detail.
+    app.cmd("select", title="Sam about the Q4")
+    app.cmd("key", key="escape")
+    s = app.cmd("key", key="o")
+    opened = s["lastOpened"] or ""
+    expect(s["handled"] and s["selected"] is None, f"o on the list should not open the detail: {s['selected']}")
+    expect(opened in ("web:https://acme.slack.com/archives/C0123/p1700000000000100",
+                      "app:com.tinyspeck.slackmacgap https://acme.slack.com/archives/C0123/p1700000000000100"),
+           f"slack link: {opened}")
+    # From the detail: the Linear link goes to the desktop app's scheme when it's installed.
+    app.cmd("select", title="CONNECT-210")
+    app.settle()
+    app.snapshot("drawer", "detail-source")
+    s = app.cmd("key", key="o")
+    opened = s["lastOpened"] or ""
+    expect(s["handled"] and s["selected"] and "CONNECT-210" in s["selected"], f"o in the detail keeps it open: {s['selected']}")
+    expect(opened in ("web:https://linear.app/acme/issue/CONNECT-210/retry-triage",
+                      "app:com.linear linear://acme/issue/CONNECT-210/retry-triage"),
+           f"linear link: {opened}")
+    # A task without a link lets the key through.
+    app.cmd("select", title="Thursday customer call")
+    s = app.cmd("key", key="o")
+    expect(not s["handled"], "o on a task without a source link should do nothing")
 
 
 @spec

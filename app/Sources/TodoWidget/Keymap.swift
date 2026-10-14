@@ -175,7 +175,7 @@ enum KeyGroup: String, CaseIterable {
 
 enum KeyAction: String, CaseIterable, Codable, Identifiable {
     case toggleWidget
-    case previous, next, first, last, open, back
+    case previous, next, first, last, open, openSource, back
     case toggleDone, delete, edit, save, moveUp, moveDown, newTask
     case toggleDoneSection, undo, redo, pin, runNow, settings, shortcuts
 
@@ -189,6 +189,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .first: "First task"
         case .last: "Last task"
         case .open: "Open task"
+        case .openSource: "Open in source app"
         case .back: "Back / close drawer"
         case .toggleDone: "Mark done / reopen"
         case .delete: "Delete task"
@@ -210,7 +211,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
     var group: KeyGroup {
         switch self {
         case .toggleWidget: .global
-        case .previous, .next, .first, .last, .open, .back: .navigate
+        case .previous, .next, .first, .last, .open, .openSource, .back: .navigate
         case .toggleDone, .delete, .edit, .save, .moveUp, .moveDown, .newTask: .tasks
         case .toggleDoneSection, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
         }
@@ -221,7 +222,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .toggleWidget: .global
         case .previous, .next, .first, .last, .open, .moveUp, .moveDown, .toggleDoneSection: .list
         case .edit, .save: .detail
-        case .toggleDone, .delete, .back, .newTask, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
+        case .openSource, .toggleDone, .delete, .back, .newTask, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
         }
     }
 
@@ -233,6 +234,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .first: KeyBinding("up", [.command])
         case .last: KeyBinding("down", [.command])
         case .open: KeyBinding("return")
+        case .openSource: KeyBinding("o")
         case .back: KeyBinding("escape")
         case .toggleDone: KeyBinding("space")
         case .delete: KeyBinding("delete")

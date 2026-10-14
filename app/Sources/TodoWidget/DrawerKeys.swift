@@ -65,6 +65,8 @@ final class DrawerKeys {
         case .open:
             guard let t = m.highlighted else { return false }
             m.select(t)
+        case .openSource:
+            guard let t = m.selected ?? m.highlighted, m.openSource(t) else { return false }
         case .back:
             if m.showShortcuts { m.showShortcuts = false }
             else if m.selectedId != nil { m.select(nil) }
