@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use todo_core::{Source, TodoItem, TaskInput, TaskPatch, TodoStore, USER};
+use todo_core::{TodoItem, TaskInput, TaskPatch, TodoStore, USER};
 
 #[derive(Parser)]
 #[command(name = "todo", version, about = "Agent-managed todo list (CLI + MCP server for the Todo Widget app)")]
@@ -73,16 +73,17 @@ enum Cmd {
     },
     /// Clear done tasks completed before today.
     Clear,
-    /// Print the prompt template, or the rendered run prompt / schedule setup prompt.
+    /// Print the prompt template, or the rendered run / discovery / schedule prompt.
     Prompt {
-        /// Fill in sources, last run and time.
+        /// The run prompt with sources, last run and time filled in.
         #[arg(long)]
         render: bool,
-        /// Print the prompt used to create a schedule in an external agent.
+        /// The prompt that sets up a recurring schedule in your agent.
         #[arg(long)]
         setup: bool,
-        #[arg(long, default_value = "Claude Code")]
-        agent: String,
+        /// The prompt that discovers sources with you, interactively.
+        #[arg(long)]
+        discovery: bool,
     },
     /// List, add or remove sources.
     Sources {
@@ -108,7 +109,7 @@ enum SourceCmd {
         #[arg(long, default_value = "")]
         instructions: String,
     },
-    Rm { id: String },
+    Rm { name: String },
 }
 
 fn priority_label(p: u8) -> &'static str {
@@ -246,11 +247,15 @@ fn main() -> Result<()> {
             let n = store.archive_done(todo_core::local_midnight_ms())?;
             println!("Cleared {n} done tasks.");
         }
-        Cmd::Prompt { render, setup, agent } => {
-            let text = match (setup, render) {
-                (true, _) => store.render_setup_prompt(agent)?,
-                (false, true) => store.render_prompt(agent)?,
-                (false, false) => store.get_prompt()?,
+        Cmd::Prompt { render, setup, discovery } => {
+            let text = if discovery {
+                store.render_discovery_prompt()
+            } else if setup {
+                store.render_setup_prompt()?
+            } else if render {
+                store.render_prompt()?
+            } else {
+                store.get_prompt()?
             };
             println!("{text}");
         }
@@ -265,12 +270,15 @@ fn main() -> Result<()> {
                 }
             }
             Some(SourceCmd::Add { name, kind, instructions }) => {
-                let s = store.save_source(Source { id: String::new(), name, kind, instructions, enabled: true, position: 0 })?;
-                println!("Added source {} ({})", s.name, s.id);
+                let s = store.upsert_source_by_name(name, kind, instructions, true)?;
+                println!("Saved source {}", s.name);
             }
-            Some(SourceCmd::Rm { id }) => {
-                store.delete_source(id)?;
-                println!("Removed.");
+            Some(SourceCmd::Rm { name }) => {
+                if store.remove_source_by_name(name.clone())? {
+                    println!("Removed {name}.");
+                } else {
+                    bail!("no source named '{name}'");
+                }
             }
         },
         Cmd::Mcp { agent } => {

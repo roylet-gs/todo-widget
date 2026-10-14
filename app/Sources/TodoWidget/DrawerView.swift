@@ -60,7 +60,7 @@ struct EdgeTabView: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glassEffect(.regular.interactive(), in: shape)
+        .liquidGlass(.regular.interactive(), in: shape)
         .help("Click to open · drag to move")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Open todo drawer, \(model.unreadCount) unread")
@@ -87,7 +87,7 @@ struct DrawerView: View {
         }
         .animation(.snappy(duration: 0.22), value: model.selectedId)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glassEffect(.regular, in: .rect(cornerRadius: 26))
+        .liquidGlass(.regular, in: .rect(cornerRadius: 26))
         .onExitCommand {
             if model.selectedId != nil { model.select(nil) } else { controller.close() }
         }
@@ -171,13 +171,13 @@ struct TaskListView: View {
                             Label(runner.isRunning ? "Running…" : "Run now", systemImage: "play.fill")
                                 .font(.caption.weight(.semibold))
                         }
-                        .buttonStyle(.glassProminent)
+                        .glassButton(prominent: true)
                         .disabled(runner.isRunning)
                     }
                     Button { prefs.pinned.toggle() } label: {
                         Image(systemName: prefs.pinned ? "pin.fill" : "pin").frame(width: 16, height: 16)
                     }
-                    .buttonStyle(.glass)
+                    .glassButton()
                     .buttonBorderShape(.roundedRectangle(radius: 8))
                     .focusEffectDisabled()
                     .help(prefs.pinned ? "Unpin: close when the pointer leaves" : "Pin the drawer open")
@@ -185,7 +185,7 @@ struct TaskListView: View {
                     Button { AppServices.shared?.showSettings() } label: {
                         Image(systemName: "slider.horizontal.3").frame(width: 16, height: 16)
                     }
-                        .buttonStyle(.glass)
+                        .glassButton()
                         .buttonBorderShape(.roundedRectangle(radius: 8))
                         .focusEffectDisabled()
                         .accessibilityLabel("Settings")
@@ -207,10 +207,10 @@ struct TaskListView: View {
             Button(updater.updating ? "Updating…" : (updater.method == .homebrew ? "Update" : "Get it")) {
                 if updater.method == .homebrew { updater.updateNow() } else { updater.openReleasePage() }
             }
-            .buttonStyle(.glass).controlSize(.small).disabled(updater.updating)
+            .glassButton().controlSize(.small).disabled(updater.updating)
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .liquidGlass(.regular, in: .rect(cornerRadius: 14))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
@@ -248,7 +248,7 @@ struct TaskListView: View {
                 .buttonStyle(.plain)
                 .accessibilityHint(runsExpanded ? "Collapse runs" : "Show each run")
                 Button("Undo all") { model.undoRecentRuns() }
-                    .buttonStyle(.glass).controlSize(.small)
+                    .glassButton().controlSize(.small)
                 Button { model.dismissRecentRuns() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
                     .accessibilityLabel("Mark changes seen")
@@ -272,7 +272,7 @@ struct TaskListView: View {
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .glassEffect(.regular.tint(.accentColor.opacity(0.18)), in: .rect(cornerRadius: 16))
+        .liquidGlass(.regular.tint(.accentColor.opacity(0.18)), in: .rect(cornerRadius: 16))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
@@ -392,7 +392,7 @@ struct TaskListView: View {
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .liquidGlass(.regular, in: .rect(cornerRadius: 14))
         .padding(.horizontal, 12).padding(.bottom, 12)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .id(toast.id)

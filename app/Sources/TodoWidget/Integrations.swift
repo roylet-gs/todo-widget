@@ -27,12 +27,13 @@ enum Integrations {
         return r.code == 0 && !p.isEmpty ? p : nil
     }
 
-    static func mcpEntry(agent: String) -> [String: Any] {
-        ["command": todoPath, "args": ["mcp", "--agent", agent]]
+    /// Agent-agnostic: agents pass their own name to start_run, so the entry carries none.
+    static var mcpEntry: [String: Any] {
+        ["command": todoPath, "args": ["mcp"]]
     }
 
-    static func mcpSnippet(agent: String) -> String {
-        let obj: [String: Any] = ["mcpServers": ["todo": mcpEntry(agent: agent)]]
+    static func mcpSnippet() -> String {
+        let obj: [String: Any] = ["mcpServers": ["todo": mcpEntry]]
         let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         return data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
@@ -48,12 +49,12 @@ enum Integrations {
     static func installClaudeCode() -> (ok: Bool, message: String) {
         guard let claude = claudePath else { return (false, "The claude CLI was not found. Install Claude Code, or run:\n\(claudeCodeCommand)") }
         _ = shell(claude, ["mcp", "remove", "todo", "--scope", "user"])
-        let r = shell(claude, ["mcp", "add", "--scope", "user", "todo", "--", todoPath, "mcp", "--agent", "Claude Code"])
+        let r = shell(claude, ["mcp", "add", "--scope", "user", "todo", "--", todoPath, "mcp"])
         return (r.code == 0, r.code == 0 ? "Added to Claude Code (user scope)." : r.err + r.out)
     }
 
     static var claudeCodeCommand: String {
-        "claude mcp add --scope user todo -- \"\(todoPath)\" mcp --agent \"Claude Code\""
+        "claude mcp add --scope user todo -- \"\(todoPath)\" mcp"
     }
 
     // MARK: Claude Desktop
@@ -87,7 +88,7 @@ enum Integrations {
                 try data.write(to: url.deletingLastPathComponent().appendingPathComponent("claude_desktop_config.json.bak-\(stamp)"))
             }
             var servers = obj["mcpServers"] as? [String: Any] ?? [:]
-            servers["todo"] = mcpEntry(agent: "Claude Desktop")
+            servers["todo"] = mcpEntry
             obj["mcpServers"] = servers
             let out = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try out.write(to: url, options: .atomic)

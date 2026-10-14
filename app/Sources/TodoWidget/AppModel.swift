@@ -22,6 +22,8 @@ final class AppModel {
     private(set) var recentRuns: [ChangeGroup] = []
     private(set) var lastSeenAt: Int64 = 0
     private(set) var lastRunAt: Int64?
+    /// Sources the agent manages through the MCP; shown read-only and refreshed live.
+    private(set) var sources: [Source] = []
 
     var selectedId: String?
     var toast: Toast?
@@ -58,6 +60,7 @@ final class AppModel {
             recentRuns = try store.runsSince(sinceMs: lastSeenAt)
                 .filter { $0.kind == "run" && !$0.events.isEmpty && !$0.undone }
             lastRunAt = try store.lastRunAt()
+            sources = try store.listSources()
             _ = try store.closeStaleRuns(idleMs: 5 * 60 * 1000)
             onRunsFinished?(try store.runsSince(sinceMs: Int64(Date().timeIntervalSince1970 * 1000) - 86_400_000))
             revision += 1

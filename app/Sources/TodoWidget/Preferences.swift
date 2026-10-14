@@ -67,7 +67,7 @@ enum ClearDone: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class Preferences {
-    private let d = UserDefaults.standard
+    private let d = AppDefaults
 
     var appearance: Appearance { didSet { d.set(appearance.rawValue, forKey: "appearance"); apply() } }
     var windowLevel: WindowLevelPref { didSet { d.set(windowLevel.rawValue, forKey: "windowLevel") } }
@@ -80,10 +80,6 @@ final class Preferences {
 
     // Built-in runner
     var runnerEnabled: Bool { didSet { d.set(runnerEnabled, forKey: "runnerEnabled") } }
-    var runnerWeekdaysOnly: Bool { didSet { d.set(runnerWeekdaysOnly, forKey: "runnerWeekdaysOnly") } }
-    var runnerIntervalMinutes: Int { didSet { d.set(runnerIntervalMinutes, forKey: "runnerIntervalMinutes") } }
-    var runnerStartHour: Int { didSet { d.set(runnerStartHour, forKey: "runnerStartHour") } }
-    var runnerEndHour: Int { didSet { d.set(runnerEndHour, forKey: "runnerEndHour") } }
     var runnerModel: String { didSet { d.set(runnerModel, forKey: "runnerModel") } }
     var runnerAllowedTools: String { didSet { d.set(runnerAllowedTools, forKey: "runnerAllowedTools") } }
 
@@ -104,17 +100,13 @@ final class Preferences {
         clearDone = ClearDone(rawValue: d.string(forKey: "clearDone") ?? "") ?? .midnight
         pinned = d.bool(forKey: "pinned")
         runnerEnabled = d.bool(forKey: "runnerEnabled")
-        runnerWeekdaysOnly = d.object(forKey: "runnerWeekdaysOnly") as? Bool ?? true
-        runnerIntervalMinutes = d.object(forKey: "runnerIntervalMinutes") as? Int ?? 120
-        runnerStartHour = d.object(forKey: "runnerStartHour") as? Int ?? 8
-        runnerEndHour = d.object(forKey: "runnerEndHour") as? Int ?? 18
         runnerModel = d.string(forKey: "runnerModel") ?? "sonnet"
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
         apply()
     }
 
     static let keys = ["appearance", "windowLevel", "edge", "tabY", "tabDisplay", "clearDone", "pinned", "runnerEnabled",
-                       "runnerWeekdaysOnly", "runnerIntervalMinutes", "runnerStartHour", "runnerEndHour", "runnerModel",
+                       "runnerModel",
                        "runnerAllowedTools", "runnerLastRun", "runnerLog", "setupComplete"]
 
     /// Forget every preference and return to defaults (used by Reset).
@@ -128,10 +120,6 @@ final class Preferences {
         clearDone = ClearDone(rawValue: d.string(forKey: "clearDone") ?? "") ?? .midnight
         pinned = d.bool(forKey: "pinned")
         runnerEnabled = d.bool(forKey: "runnerEnabled")
-        runnerWeekdaysOnly = d.object(forKey: "runnerWeekdaysOnly") as? Bool ?? true
-        runnerIntervalMinutes = d.object(forKey: "runnerIntervalMinutes") as? Int ?? 120
-        runnerStartHour = d.object(forKey: "runnerStartHour") as? Int ?? 8
-        runnerEndHour = d.object(forKey: "runnerEndHour") as? Int ?? 18
         runnerModel = d.string(forKey: "runnerModel") ?? "sonnet"
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
         apply()
@@ -144,12 +132,5 @@ final class Preferences {
 
     func apply() {
         NSApp?.appearance = appearance.nsAppearance
-    }
-
-    /// Human-readable schedule used in the setup prompt.
-    var scheduleText: String {
-        let days = runnerWeekdaysOnly ? "weekdays" : "every day"
-        let every = runnerIntervalMinutes % 60 == 0 ? "\(runnerIntervalMinutes / 60) hours" : "\(runnerIntervalMinutes) minutes"
-        return String(format: "%@, every %@ from %02d:00 to %02d:00", days, every, runnerStartHour, runnerEndHour)
     }
 }

@@ -29,8 +29,28 @@ pub struct TodoServer {
 
 #[derive(Deserialize, JsonSchema)]
 struct AgentArg {
-    /// Your name as shown to the user, e.g. "Claude Desktop" or "Hermes".
+    /// Your own name, shown to the user next to the changes you make
+    /// (e.g. "Claude Desktop", "Hermes", "Claude Code").
     agent: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SaveSourceArgs {
+    /// Short name, e.g. "Slack". Saving an existing name (case-insensitive) updates it.
+    name: String,
+    /// One of: Messages, Email, Issues, Code review, Calendar, Docs, Other.
+    kind: String,
+    /// Plain-English instructions a future scheduled run can follow on its own: which
+    /// people, channels, projects, repos or labels matter, and what to ignore.
+    instructions: String,
+    /// Defaults to true.
+    enabled: Option<bool>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SourceNameArg {
+    /// Source name (case-insensitive).
+    name: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -182,23 +202,28 @@ impl TodoServer {
 
 #[tool_router]
 impl TodoServer {
-    #[tool(description = "Start here. Returns the user's instructions for this sync (sources to check and ranking rules), the time of the last run, and all open tasks. Follow the returned prompt.")]
+    #[tool(description = "Start here, on every run. Returns the user's current instructions (sources to check and ranking rules, which change over time), the configured sources, the time of the last run, and all open tasks. Pass your own name as agent. Follow the returned prompt.")]
     async fn get_instructions(&self, Parameters(a): Parameters<AgentArg>) -> ToolResult {
         let agent = a.agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| self.agent());
         *self.run_agent.lock().unwrap() = Some(agent.clone());
-        let prompt = self.store.render_prompt(agent).map_err(err)?;
+        let _ = agent;
+        let prompt = self.store.render_prompt().map_err(err)?;
+        let sources: Vec<_> = self.store.list_sources().map_err(err)?.iter()
+            .map(|s| json!({ "name": s.name, "kind": s.kind, "instructions": s.instructions, "enabled": s.enabled }))
+            .collect();
         let tasks: Vec<_> = self.store.list_tasks(false).map_err(err)?.iter().map(task_json).collect();
         let last_run = self.store.last_run_at().map_err(err)?.map(|ms| {
             chrono::DateTime::from_timestamp_millis(ms).map(|d| d.with_timezone(&chrono::Local).to_rfc3339()).unwrap_or_default()
         });
         Ok(format!(
-            "{prompt}\n\n---\nlast_run: {}\nopen_tasks (in current order):\n{}",
+            "{prompt}\n\n---\nlast_run: {}\nsources:\n{}\nopen_tasks (in current order):\n{}",
             last_run.as_deref().unwrap_or("never"),
+            serde_json::to_string_pretty(&sources).map_err(err)?,
             serde_json::to_string_pretty(&tasks).map_err(err)?
         ))
     }
 
-    #[tool(description = "Begin a sync run. All later writes in this session are grouped under it so the user can undo the whole run at once. Returns the run_id.")]
+    #[tool(description = "Begin a run. Pass your own name as agent; the user sees it next to every change in this run. All later writes in this session are grouped under it so the user can undo the whole run at once. Returns the run_id.")]
     async fn start_run(&self, Parameters(a): Parameters<AgentArg>) -> ToolResult {
         let agent = a.agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| self.agent());
         *self.run_agent.lock().unwrap() = Some(agent.clone());
@@ -215,6 +240,26 @@ impl TodoServer {
         };
         let g = self.store.finish_run(id, a.summary).map_err(err)?;
         Ok(json!({ "run_id": g.id, "added": g.stats.added, "updated": g.stats.updated, "done": g.stats.done, "reordered": g.stats.reordered, "deleted": g.stats.deleted }).to_string())
+    }
+
+    #[tool(description = "List the sources the scheduled sync checks (name, kind, instructions, enabled).")]
+    async fn list_sources(&self) -> ToolResult {
+        let s: Vec<_> = self.store.list_sources().map_err(err)?.iter()
+            .map(|s| json!({ "name": s.name, "kind": s.kind, "instructions": s.instructions, "enabled": s.enabled }))
+            .collect();
+        serde_json::to_string_pretty(&s).map_err(err)
+    }
+
+    #[tool(description = "Add or update a source the scheduled sync should check. Sources are rendered into the instructions every run receives, so write instructions a future run can follow on its own. Saving an existing name updates it.")]
+    async fn save_source(&self, Parameters(a): Parameters<SaveSourceArgs>) -> ToolResult {
+        let s = self.store.upsert_source_by_name(a.name, a.kind, a.instructions, a.enabled.unwrap_or(true)).map_err(err)?;
+        Ok(json!({ "saved": s.name, "kind": s.kind, "enabled": s.enabled }).to_string())
+    }
+
+    #[tool(description = "Remove a source the user no longer wants checked.")]
+    async fn remove_source(&self, Parameters(a): Parameters<SourceNameArg>) -> ToolResult {
+        let removed = self.store.remove_source_by_name(a.name.clone()).map_err(err)?;
+        if removed { Ok(json!({ "removed": a.name }).to_string()) } else { Err(format!("no source named '{}'", a.name)) }
     }
 
     #[tool(description = "List open tasks in priority order (optionally with today's completed tasks).")]

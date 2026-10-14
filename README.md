@@ -13,7 +13,20 @@ brew install --cask todo-widget
 ```
 
 This installs `TodoWidget.app` into `/Applications` and links the `todo` CLI onto your PATH. Open the app once
-to run setup. The app checks GitHub for new releases every 6 hours, shows a banner in the drawer and a
+to run setup:
+
+1. **Connect:** add the `todo` MCP to your agent (Claude Code, Claude Desktop, or any MCP client via a copied
+   config), and allow notifications and open-at-login.
+2. **Discover sources:** paste the discovery prompt into your agent. It asks which of your tools to check and
+   what matters in each, then saves the sources through the MCP (`save_source` / `remove_source`). The app
+   shows them read-only and updates live.
+3. **Schedule:** paste the schedule prompt into your agent's scheduler. By default it runs every hour,
+   Monday to Friday, 09:00–17:00. Each run calls `get_instructions`, so source and rule changes apply without
+   touching the schedule.
+
+The app is agent-agnostic: agents pass their own name to `start_run` / `get_instructions`, and that name is
+shown next to their changes. Nothing is registered per agent. `todo prompt --discovery` and
+`todo prompt --setup` print the same prompts. The app checks GitHub for new releases every 6 hours, shows a banner in the drawer and a
 notification when one is out, and can run `brew upgrade --cask todo-widget` for you (Settings › General).
 Settings › General › Open at login starts it automatically when you log in.
 
@@ -54,16 +67,16 @@ During development: `./scripts/dev-run.sh` rebuilds the Swift app and relaunches
 Settings › Agents does this for you. Manually:
 
 ```sh
-claude mcp add --scope user todo -- /Applications/TodoWidget.app/Contents/MacOS/todo mcp --agent "Claude Code"
+claude mcp add --scope user todo -- /Applications/TodoWidget.app/Contents/MacOS/todo mcp
 ```
 
 Any other MCP client:
 
 ```json
-{ "mcpServers": { "todo": { "command": "/Applications/TodoWidget.app/Contents/MacOS/todo", "args": ["mcp", "--agent", "Hermes"] } } }
+{ "mcpServers": { "todo": { "command": "/Applications/TodoWidget.app/Contents/MacOS/todo", "args": ["mcp"] } } }
 ```
 
-Agents should call `get_instructions` first; it returns your editable prompt (Settings › Prompt), your sources and
+Agents should call `get_instructions` first; it returns the run prompt (Settings › Prompt), your sources and
 the open tasks.
 
 ## Tests

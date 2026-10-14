@@ -2,7 +2,7 @@ import ServiceManagement
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, sources, prompt, schedules, agents, history
+    case general, sources, prompt, schedule, history
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var icon: String {
@@ -10,8 +10,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .sources: "tray.2"
         case .prompt: "text.quote"
-        case .schedules: "clock"
-        case .agents: "point.3.connected.trianglepath.dotted"
+        case .schedule: "clock"
         case .history: "clock.arrow.circlepath"
         }
     }
@@ -21,7 +20,7 @@ struct SettingsView: View {
     let model: AppModel
     let prefs: Preferences
     let runner: Runner
-    @State private var tab: SettingsTab = .general
+    @State var tab: SettingsTab = .general
 
     var body: some View {
         NavigationSplitView {
@@ -29,6 +28,7 @@ struct SettingsView: View {
                 Label(t.title, systemImage: t.icon).tag(t)
             }
             .navigationSplitViewColumnWidth(190)
+            .e2eOpaque(.controlBackgroundColor)
         } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -36,8 +36,7 @@ struct SettingsView: View {
                     case .general: GeneralPane(model: model, prefs: prefs)
                     case .sources: SourcesPane(model: model)
                     case .prompt: PromptPane(model: model)
-                    case .schedules: SchedulesPane(model: model, prefs: prefs, runner: runner)
-                    case .agents: AgentsPane(model: model)
+                    case .schedule: SchedulePane(model: model, prefs: prefs, runner: runner)
                     case .history: HistoryPane(model: model)
                     }
                 }
@@ -45,8 +44,10 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(tab.title)
+            .e2eOpaque()
         }
         .frame(minWidth: 820, minHeight: 600)
+        .e2eOpaque()
     }
 }
 
@@ -68,7 +69,7 @@ struct Card<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .padding(.vertical, 4)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .liquidGlass(.regular, in: .rect(cornerRadius: 20))
     }
 }
 
@@ -96,7 +97,6 @@ struct GeneralPane: View {
     @Bindable var prefs: Preferences
     @State private var loginItem = LoginItem.isEnabled
     @State private var loginMessage: String?
-    @State private var cliMessage: String?
     @State private var confirmReset = false
 
     var body: some View {
@@ -151,7 +151,7 @@ struct GeneralPane: View {
             CardRow(title: "Open at login", detail: loginMessage ?? "Start Todo Widget automatically when you log in to your Mac.") {
                 HStack(spacing: 10) {
                     if LoginItem.needsApproval {
-                        Button("Open Login Items") { LoginItem.openSystemSettings() }.buttonStyle(.glass).controlSize(.small)
+                        Button("Open Login Items") { LoginItem.openSystemSettings() }.glassButton().controlSize(.small)
                     }
                     Toggle("", isOn: $loginItem).toggleStyle(.switch).labelsHidden()
                         .onChange(of: loginItem) { _, on in
@@ -167,20 +167,20 @@ struct GeneralPane: View {
                 statusRow("MCP command", "\(Integrations.todoPath) mcp")
                 statusRow("Last agent run", model.lastRunAt.map(clockTime) ?? "never")
                 statusRow("Database", model.store.path())
-                HStack {
-                    Button("Install `todo` command in ~/.local/bin") { cliMessage = Integrations.installCLI().message }
-                        .buttonStyle(.glass)
-                    if let cliMessage { Text(cliMessage).font(.caption).foregroundStyle(.secondary) }
-                }
-                .padding(.top, 6)
+
             }
             .padding(16)
+        }
+        Card {
+            CardRow(title: "Setup", detail: "Connect agents, rediscover sources or set up the schedule again. Your tasks are kept.") {
+                Button("Run setup again") { AppServices.shared?.showSetup() }.glassButton()
+            }
         }
         if let updater = AppServices.shared?.updater { UpdatesCard(updater: updater) }
         Card {
             CardRow(title: "Reset Todo Widget", detail: "Clears settings, sources and prompts, then runs setup again. You choose whether to keep your tasks.") {
                 Button("Reset…", role: .destructive) { confirmReset = true }
-                    .buttonStyle(.glass)
+                    .glassButton()
             }
         }
         .confirmationDialog("Reset Todo Widget?", isPresented: $confirmReset) {
@@ -188,7 +188,7 @@ struct GeneralPane: View {
             Button("Erase everything, including tasks and history", role: .destructive) { AppServices.shared?.reset(eraseTasks: true) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Agent connections in Claude Code, Claude Desktop and Hermes are left as they are. Setup will walk you through the rest.")
+            Text("MCP connections you added to your agents are left as they are. Setup will walk you through the rest.")
         }
     }
 
@@ -201,178 +201,126 @@ struct GeneralPane: View {
     }
 }
 
-// MARK: - Sources
+// MARK: - Sources (managed by your agent)
 
 struct SourcesPane: View {
     let model: AppModel
-    @State private var sources: [Source] = []
 
     var body: some View {
-        HStack(alignment: .top) {
-            PaneHeader(title: "Sources", subtitle: "Where agents should look for new work. Enabled sources are added to the prompt, and each agent reads them through its own connectors.")
-            Spacer()
-            Button("Add source") {
-                if let s = try? model.store.saveSource(source: Source(id: "", name: "New source", kind: "Messages", instructions: "", enabled: true, position: 0)) {
-                    sources.append(s)
-                }
-            }
-            .buttonStyle(.glassProminent)
-        }
+        PaneHeader(title: "Sources", subtitle: "Your agent manages these. Run the discovery prompt in any agent to add, change or remove sources. Every scheduled run checks them.")
         Card {
-            if sources.isEmpty {
-                Text("No sources yet. Add Slack, Gmail, Linear, GitHub, Calendar… and describe what to look for.")
+            if model.sources.isEmpty {
+                Text("No sources yet. Run the discovery prompt below in your agent.")
                     .foregroundStyle(.secondary).padding(16)
             }
-            ForEach($sources, id: \.id) { $s in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
-                        Toggle("", isOn: $s.enabled).toggleStyle(.switch).labelsHidden()
-                        TextField("Name", text: $s.name).textFieldStyle(.plain).fontWeight(.semibold).frame(maxWidth: 200)
-                        Picker("", selection: $s.kind) {
-                            ForEach(["Messages", "Email", "Issues", "Code review", "Calendar", "Docs", "Other"], id: \.self) { Text($0).tag($0) }
-                        }
-                        .labelsHidden().frame(width: 130)
-                        Spacer()
-                        Button(role: .destructive) {
-                            try? model.store.deleteSource(id: s.id)
-                            sources.removeAll { $0.id == s.id }
-                        } label: { Image(systemName: "trash") }
-                        .buttonStyle(.plain).foregroundStyle(.secondary)
-                        .accessibilityLabel("Remove \(s.name)")
-                    }
-                    TextField("What to look for, e.g. DMs and mentions in #team where someone asks me for something", text: $s.instructions, axis: .vertical)
-                        .textFieldStyle(.plain).foregroundStyle(.secondary).lineLimit(1...4)
-                }
-                .padding(.horizontal, 16).padding(.vertical, 12)
-                .onChange(of: s) { _, new in _ = try? model.store.saveSource(source: new) }
-                Divider()
+            ForEach(Array(model.sources.enumerated()), id: \.element.id) { i, s in
+                if i > 0 { Divider() }
+                SourceRow(source: s).padding(.horizontal, 16).padding(.vertical, 12)
             }
         }
-        .onAppear { sources = (try? model.store.listSources()) ?? [] }
+        PromptBlock(title: "Discovery prompt", subtitle: "Paste this into any agent connected to the todo MCP. It will ask you which sources to check and save them here.",
+                    text: model.store.renderDiscoveryPrompt())
     }
 }
 
-// MARK: - Prompt
+struct SourceRow: View {
+    let source: Source
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Circle().fill(source.enabled ? Color.green : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
+                .accessibilityLabel(source.enabled ? "Enabled" : "Disabled")
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(source.name).fontWeight(.semibold)
+                    Text(source.kind).font(.caption).foregroundStyle(.secondary)
+                }
+                if !source.instructions.isEmpty {
+                    Text(source.instructions).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+// MARK: - Prompt (read-only)
 
 struct PromptPane: View {
     let model: AppModel
-    @State private var draft = ""
-    @State private var saved = ""
-    @State private var preview: String?
-    @State private var versions: [PromptVersion] = []
 
     var body: some View {
-        HStack(alignment: .top) {
-            PaneHeader(title: "Prompt", subtitle: "What every agent is told on each run. Agents fetch it live through get_instructions, so you don't need to update their schedules after editing it.")
-            Spacer()
-            Menu(versions.isEmpty ? "No versions" : "v\(versions.first!.version) · \(clockTime(versions.first!.createdAt))") {
-                ForEach(versions, id: \.version) { v in
-                    Button("v\(v.version) · \(clockTime(v.createdAt))") { draft = v.body }
-                }
-            }
-            .fixedSize()
-            Button("Save") {
-                try? model.store.setPrompt(body: draft)
-                load()
-            }
-            .buttonStyle(.glassProminent)
-            .disabled(draft == saved)
-        }
-        HStack(alignment: .top, spacing: 16) {
-            TextEditor(text: $draft)
-                .font(.system(size: 12, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(12)
-                .frame(minHeight: 440)
-                .background(.fill.quaternary, in: .rect(cornerRadius: 18))
-            VStack(alignment: .leading, spacing: 12) {
-                Text("VARIABLES").font(.system(size: 10, weight: .semibold)).kerning(0.8).foregroundStyle(.secondary)
-                ForEach([("{{sources}}", "Enabled sources and their instructions"), ("{{last_run}}", "When the last run finished, from any agent"), ("{{now}}", "Current local time"), ("{{agent}}", "Name of the running agent")], id: \.0) { v in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(v.0).font(.caption.monospaced()).foregroundStyle(.tint)
-                        Text(v.1).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Button("Preview rendered prompt") { preview = try? model.store.renderPrompt(agent: "Claude Code") }
-                    .buttonStyle(.glass)
-                Button("Reset to default") { draft = model.store.defaultPrompt() }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).font(.caption)
-            }
-            .frame(width: 210)
-        }
-        .onAppear(perform: load)
-        .sheet(item: Binding(get: { preview.map { IdentifiedText(text: $0) } }, set: { preview = $0?.text })) { p in
-            VStack(alignment: .leading) {
-                ScrollView { Text(p.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                HStack { Spacer(); Button("Copy") { Integrations.copy(p.text) }; Button("Done") { preview = nil }.keyboardShortcut(.defaultAction) }
-            }
-            .padding(20)
-            .frame(width: 640, height: 520)
-        }
-    }
-
-    private func load() {
-        saved = (try? model.store.getPrompt()) ?? ""
-        draft = saved
-        versions = (try? model.store.promptVersions()) ?? []
+        PaneHeader(title: "Prompt", subtitle: "What every scheduled run is told. Agents fetch it fresh through get_instructions, so changes to your sources reach the next run.")
+        PromptBlock(title: "Run prompt", subtitle: "Rendered with your current sources and last run time.",
+                    text: (try? model.store.renderPrompt()) ?? "", minHeight: 420)
+            .id(model.revision)
     }
 }
 
-struct IdentifiedText: Identifiable {
-    let text: String
-    var id: String { text }
-}
+// MARK: - Schedule
 
-// MARK: - Schedules
-
-struct SchedulesPane: View {
+struct SchedulePane: View {
     let model: AppModel
     @Bindable var prefs: Preferences
     let runner: Runner
-    @State private var setupDraft = ""
-    @State private var copied: String?
 
-    private struct AgentSeen: Identifiable { let id: String; let last: Int64; let count: Int }
+    private struct ActorRun: Identifiable { let id: String; let last: Int64; let count: Int }
 
-    private var externalAgents: [AgentSeen] {
+    /// Last run per agent name, from run history (agents name themselves; nothing is registered).
+    private var recentRuns: [ActorRun] {
         let runs = (try? model.store.runsSince(sinceMs: 0)) ?? []
         var by: [String: (Int64, Int)] = [:]
-        for r in runs where r.actor != Runner.agentName {
+        for r in runs where r.kind == "run" {
             let cur = by[r.actor] ?? (0, 0)
             by[r.actor] = (max(cur.0, r.createdAt), cur.1 + 1)
         }
-        return by.map { AgentSeen(id: $0.key, last: $0.value.0, count: $0.value.1) }.sorted { $0.last > $1.last }
+        return by.map { ActorRun(id: $0.key, last: $0.value.0, count: $0.value.1) }.sorted { $0.last > $1.last }
     }
 
     var body: some View {
-        PaneHeader(title: "Schedules", subtitle: "Any number of agents and schedules can update the list. The widget only stores it.")
+        PaneHeader(title: "Schedule", subtitle: "Paste the schedule prompt into your agent's scheduler once. Each run fetches its instructions from the app, so later changes don't need a new schedule.")
+        Card {
+            CardRow(title: "Working hours", detail: "Used by the schedule prompt and the built-in runner.") { EmptyView() }
+            ScheduleEditor(model: model).padding(.horizontal, 16).padding(.bottom, 14)
+        }
+        PromptBlock(title: "Schedule prompt", subtitle: "Paste this into your agent's scheduler as a recurring task.",
+                    text: (try? model.store.renderSetupPrompt()) ?? "")
+            .id(model.revision)
+
+        if !recentRuns.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Recent runs").font(.headline)
+                Text("The last run from each agent, by the name it gave. Check here if a schedule stops firing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Card {
+                ForEach(Array(recentRuns.enumerated()), id: \.element.id) { i, a in
+                    if i > 0 { Divider() }
+                    CardRow(title: a.id, detail: "\(a.count) run\(a.count == 1 ? "" : "s")") {
+                        Text("Last run \(clockTime(a.last))").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
 
         Card {
-            CardRow(title: "Built-in runner (claude -p)", detail: runnerDetail) {
+            CardRow(title: "Built-in runner (optional)", detail: prefs.runnerEnabled
+                    ? "Runs claude -p in your working hours. Next run \(runner.nextRun.map { clockTime(Int64($0.timeIntervalSince1970 * 1000)) } ?? "—")."
+                    : "Instead of your agent's scheduler, the app can run Claude Code's claude -p for you.") {
                 Toggle("", isOn: $prefs.runnerEnabled).toggleStyle(.switch).labelsHidden()
             }
             if prefs.runnerEnabled {
                 Divider()
-                HStack(spacing: 14) {
-                    Picker("Days", selection: $prefs.runnerWeekdaysOnly) { Text("Weekdays").tag(true); Text("Every day").tag(false) }
-                    Picker("Every", selection: $prefs.runnerIntervalMinutes) {
-                        ForEach([30, 60, 120, 180, 240], id: \.self) { m in Text(m < 60 ? "\(m) min" : "\(m / 60) h").tag(m) }
-                    }
-                    Picker("From", selection: $prefs.runnerStartHour) { ForEach(0..<24, id: \.self) { Text(String(format: "%02d:00", $0)).tag($0) } }
-                    Picker("To", selection: $prefs.runnerEndHour) { ForEach(1..<25, id: \.self) { Text(String(format: "%02d:00", $0)).tag($0) } }
+                VStack(alignment: .leading, spacing: 8) {
                     Picker("Model", selection: $prefs.runnerModel) { Text("Sonnet").tag("sonnet"); Text("Opus").tag("opus"); Text("Haiku").tag("haiku") }
-                }
-                .padding(16)
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
+                        .fixedSize()
                     Text("Allowed tools").fontWeight(.semibold)
                     Text("Runs are unattended, so only these tools are allowed. Keep source tools read-only.").font(.caption).foregroundStyle(.secondary)
                     TextField("", text: $prefs.runnerAllowedTools, axis: .vertical).font(.caption.monospaced()).textFieldStyle(.roundedBorder).lineLimit(2...5)
                     HStack {
-                        Button(runner.isRunning ? "Running…" : "Run now") { runner.runNow() }.buttonStyle(.glassProminent).disabled(runner.isRunning)
-                        Button("Copy command") { Integrations.copy(runner.commandPreview) }.buttonStyle(.glass)
+                        Button(runner.isRunning ? "Running…" : "Run now") { runner.runNow() }.glassButton(prominent: true).disabled(runner.isRunning)
+                        Button("Copy command") { Integrations.copy(runner.commandPreview) }.glassButton()
                     }
-                    .padding(.top, 4)
                 }
                 .padding(16)
                 if !runner.log.isEmpty {
@@ -392,148 +340,6 @@ struct SchedulesPane: View {
                 }
             }
         }
-
-        if !externalAgents.isEmpty {
-            Card {
-                ForEach(externalAgents) { a in
-                    CardRow(title: a.id, detail: "\(a.count) run\(a.count == 1 ? "" : "s") recorded") {
-                        Text("Last run \(clockTime(a.last))").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Divider()
-                }
-            }
-        }
-
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Schedule setup prompt").font(.headline)
-                    Text("Paste this into Claude Desktop or Hermes when you create a scheduled task. It's generated from your settings, and you can edit it here.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Reset to generated") {
-                    try? model.store.setSetupPrompt(body: nil)
-                    loadSetup()
-                }
-                .buttonStyle(.plain).foregroundStyle(.secondary).font(.caption)
-            }
-            TextEditor(text: $setupDraft)
-                .font(.system(size: 12, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(12)
-                .frame(minHeight: 140)
-                .background(.fill.quaternary, in: .rect(cornerRadius: 18))
-                .onChange(of: setupDraft) { _, v in try? model.store.setSetupPrompt(body: v) }
-            HStack {
-                Button("Copy and open Claude Desktop") {
-                    copySetup(agent: "Claude Desktop")
-                    Integrations.openClaudeDesktop()
-                }
-                .buttonStyle(.glassProminent)
-                Button("Copy for Hermes") { copySetup(agent: "Hermes") }.buttonStyle(.glass)
-                if let copied { Text(copied).font(.caption).foregroundStyle(.secondary) }
-            }
-        }
-        .onAppear {
-            try? model.store.setSetting(key: "schedule_text", value: prefs.scheduleText)
-            loadSetup()
-        }
-    }
-
-    private var runnerDetail: String {
-        guard prefs.runnerEnabled else { return "Off. The widget runs Claude Code on a schedule using your login and connectors." }
-        let next = runner.nextRun.map { clockTime(Int64($0.timeIntervalSince1970 * 1000)) } ?? "—"
-        return "\(prefs.scheduleText.capitalizedFirst) · next run \(next)"
-    }
-
-    private func loadSetup() { setupDraft = (try? model.store.getSetupPrompt()) ?? "" }
-
-    private func copySetup(agent: String) {
-        if let text = try? model.store.renderSetupPrompt(agent: agent) {
-            Integrations.copy(text)
-            copied = "Copied for \(agent)"
-        }
-    }
-}
-
-extension String {
-    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
-}
-
-// MARK: - Agents
-
-struct AgentsPane: View {
-    let model: AppModel
-    @State private var codeOK = false
-    @State private var desktopOK = false
-    @State private var message: String?
-
-    var body: some View {
-        PaneHeader(title: "Connect agents", subtitle: "Each agent launches the local command todo mcp, so nothing needs to keep running in the background.")
-        HStack(alignment: .top, spacing: 12) {
-            agentCard("Claude Code", ok: codeOK, how: "Runs claude mcp add --scope user todo. The built-in runner uses it.", action: codeOK ? "Reinstall" : "Add") {
-                let r = Integrations.installClaudeCode()
-                message = r.message
-                refresh()
-            }
-            agentCard("Claude Desktop", ok: desktopOK, how: "Adds \"todo\" to claude_desktop_config.json, with a backup of the old file. Restart Claude Desktop afterwards.", action: desktopOK ? "Reinstall" : "Add") {
-                message = Integrations.installClaudeDesktop().message
-                refresh()
-            }
-            agentCard("Hermes", ok: hermesSeen, how: "Paste the config below into Hermes’s MCP settings. It shows as connected after its first run.", action: "Copy config") {
-                Integrations.copy(Integrations.mcpSnippet(agent: "Hermes"))
-                message = "Hermes config copied."
-            }
-        }
-        if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("For any other MCP client, paste this config:").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Copy") { Integrations.copy(Integrations.mcpSnippet(agent: "Agent")) }.buttonStyle(.glass).controlSize(.small)
-            }
-            Text(Integrations.mcpSnippet(agent: "Agent"))
-                .font(.system(size: 11.5, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.black.opacity(0.75), in: .rect(cornerRadius: 16))
-                .foregroundStyle(.white)
-        }
-        .onAppear(perform: refresh)
-    }
-
-    private var hermesSeen: Bool {
-        ((try? model.store.runsSince(sinceMs: 0)) ?? []).contains { $0.actor.localizedCaseInsensitiveContains("hermes") }
-    }
-
-    private func refresh() {
-        desktopOK = Integrations.claudeDesktopInstalled()
-        DispatchQueue.global().async {
-            let ok = Integrations.claudeCodeInstalled()
-            DispatchQueue.main.async { codeOK = ok }
-        }
-    }
-
-    private func agentCard(_ name: String, ok: Bool, how: String, action: String, perform: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(name).fontWeight(.semibold)
-                Spacer()
-                Text(ok ? "Connected" : "Not set up")
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(ok ? Color.green.opacity(0.18) : Color.secondary.opacity(0.15), in: Capsule())
-                    .foregroundStyle(ok ? Color.green : .secondary)
-            }
-            Text(how).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button(action, action: perform).buttonStyle(.glass)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
     }
 }
 
@@ -558,7 +364,7 @@ struct HistoryPane: View {
                     if g.undone {
                         Text("Undone").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Button(g.kind == "system" ? "Restore" : "Undo") { model.undoGroup(g.id) }.buttonStyle(.glass).controlSize(.small)
+                        Button(g.kind == "system" ? "Restore" : "Undo") { model.undoGroup(g.id) }.glassButton().controlSize(.small)
                     }
                 }
                 ForEach(g.events.prefix(6), id: \.id) { e in
@@ -572,7 +378,7 @@ struct HistoryPane: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .liquidGlass(.regular, in: .rect(cornerRadius: 20))
         }
         .onAppear(perform: load)
         .onChange(of: model.revision) { _, _ in load() }
@@ -604,13 +410,13 @@ struct UpdatesCard: View {
             CardRow(title: "Version \(updater.current)", detail: detail) {
                 HStack(spacing: 8) {
                     Button(updater.checking ? "Checking…" : "Check now") { updater.check(force: true) }
-                        .buttonStyle(.glass).disabled(updater.checking)
+                        .glassButton().disabled(updater.checking)
                     if updater.updateAvailable {
                         if updater.method == .homebrew {
                             Button(updater.updating ? "Updating…" : "Update to \(updater.latest ?? "")") { updater.updateNow() }
-                                .buttonStyle(.glassProminent).disabled(updater.updating)
+                                .glassButton(prominent: true).disabled(updater.updating)
                         } else {
-                            Button("Get \(updater.latest ?? "")") { updater.openReleasePage() }.buttonStyle(.glassProminent)
+                            Button("Get \(updater.latest ?? "")") { updater.openReleasePage() }.glassButton(prominent: true)
                         }
                     }
                 }

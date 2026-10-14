@@ -146,14 +146,52 @@ fn prompt_renders_sources_and_versions() {
     let (_d, s) = store();
     s.save_source(Source { id: String::new(), name: "Slack".into(), kind: "Messages".into(), instructions: "DMs".into(), enabled: true, position: 0 }).unwrap();
     s.save_source(Source { id: String::new(), name: "Off".into(), kind: "Email".into(), instructions: String::new(), enabled: false, position: 0 }).unwrap();
-    let p = s.render_prompt("Claude".into()).unwrap();
+    let p = s.render_prompt().unwrap();
     assert!(p.contains("- Slack (Messages): DMs"));
     assert!(!p.contains("Off"));
-    assert!(p.contains("start_run(agent=\"Claude\")"));
-    s.set_prompt("custom {{agent}}".into()).unwrap();
-    assert_eq!(s.render_prompt("Hermes".into()).unwrap(), "custom Hermes");
+    assert!(p.contains("agent set to your own name"));
+    assert!(!p.contains("{{"), "unfilled placeholder in: {p}");
+    s.set_prompt("custom {{now}}".into()).unwrap();
+    assert!(s.render_prompt().unwrap().starts_with("custom "));
     assert_eq!(s.prompt_versions().unwrap().len(), 1);
-    assert!(s.render_setup_prompt("Claude Desktop".into()).unwrap().contains("agent=\"Claude Desktop\""));
+}
+
+#[test]
+fn agent_managed_sources_by_name() {
+    let (_d, s) = store();
+    let a = s.upsert_source_by_name("Slack".into(), "Messages".into(), "DMs".into(), true).unwrap();
+    let b = s.upsert_source_by_name("slack".into(), "Messages".into(), "DMs and #team".into(), true).unwrap();
+    assert_eq!(a.id, b.id, "same name in different case updates the existing source");
+    s.upsert_source_by_name("Gmail".into(), "Email".into(), "".into(), true).unwrap();
+    let names: Vec<String> = s.list_sources().unwrap().into_iter().map(|x| x.name).collect();
+    assert_eq!(names, ["slack", "Gmail"]);
+    assert!(s.remove_source_by_name("SLACK".into()).unwrap());
+    assert!(!s.remove_source_by_name("nope".into()).unwrap());
+    assert_eq!(s.list_sources().unwrap().len(), 1);
+    assert!(s.upsert_source_by_name("  ".into(), "Other".into(), "".into(), true).is_err());
+}
+
+#[test]
+fn schedule_and_discovery_prompts_are_agent_agnostic() {
+    let (_d, s) = store();
+    let p = s.render_setup_prompt().unwrap();
+    assert!(p.contains("every hour, on the hour, Monday to Friday from 09:00 to 17:00"), "{p}");
+    assert!(p.contains("get_instructions") && p.contains("own name") && p.contains("never reuse"));
+    assert!(!p.contains("{{"), "unfilled placeholder in: {p}");
+    s.set_schedule(ScheduleConfig { weekdays_only: false, start_hour: 8, end_hour: 18, interval_minutes: 120 }).unwrap();
+    let p = s.render_setup_prompt().unwrap();
+    assert!(p.contains("every 2 hours, on the hour, every day from 08:00 to 18:00"), "{p}");
+    assert!(s.set_schedule(ScheduleConfig { weekdays_only: true, start_hour: 18, end_hour: 9, interval_minutes: 60 }).is_err());
+    let d = s.render_discovery_prompt();
+    assert!(d.contains("save_source") && d.contains("remove_source") && d.contains("your own name"));
+    assert!(!d.contains("{{"));
+}
+
+#[test]
+fn run_without_agent_name_is_recorded_as_agent() {
+    let (_d, s) = store();
+    let r = s.start_run("  ".into()).unwrap();
+    assert_eq!(s.get_group(r).unwrap().actor, "Agent");
 }
 
 #[test]

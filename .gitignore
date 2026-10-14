@@ -4,3 +4,4 @@
 /app/Generated
 /app/Sources/TodoWidget/Generated/
 .DS_Store
+/e2e/tmp

@@ -14,6 +14,7 @@ final class AppServices {
     let updater: Updater
     private var settingsWindow: NSWindow?
     private var setupWindow: NSWindow?
+    private var e2e: E2EServer?
     private var midnightTimer: Timer?
 
     init() throws {
@@ -30,29 +31,13 @@ final class AppServices {
         scheduleMidnight()
         // Debug hooks used for screenshots and manual testing.
         let env = ProcessInfo.processInfo.environment
-        if !prefs.setupComplete && env["TODO_WIDGET_SKIP_SETUP"] != "1" { showSetup() }
+        if !prefs.setupComplete && env["TODO_WIDGET_SKIP_SETUP"] != "1" && !E2E.enabled { showSetup() }
         if env["TODO_WIDGET_OPEN"] == "1" { drawer.open() }
         if env["TODO_WIDGET_SETTINGS"] == "1" { showSettings() }
-        if let dir = env["TODO_WIDGET_SNAPSHOT"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                MainActor.assumeIsolated { self?.snapshot(to: dir) }
-            }
-        }
+        if let dir = E2E.dir { e2e = E2EServer(dir: dir, services: self) }
     }
 
-    /// Debug: write PNGs of the app's own windows (no screen-recording permission needed).
-    func snapshot(to dir: String) {
-        var targets = drawer.snapshotTargets
-        if let v = settingsWindow?.contentView { targets.append(("settings", v)) }
-        if let v = setupWindow?.contentView { targets.append(("setup", v)) }
-        for (name, view) in targets {
-            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
-            view.cacheDisplay(in: view.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
-        }
-    }
-
-    func showSettings() {
+    func showSettings(tab: SettingsTab = .general) {
         if settingsWindow == nil {
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
@@ -61,32 +46,41 @@ final class AppServices {
             w.title = "Todo Widget Settings"
             w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: SettingsView(model: model, prefs: prefs, runner: runner))
             w.center()
             settingsWindow = w
         }
+        settingsWindow?.contentView = NSHostingView(rootView: SettingsView(model: model, prefs: prefs, runner: runner, tab: tab))
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
-    func showSetup() {
+    func closeSettings() {
+        settingsWindow?.close()
+        settingsWindow = nil
+    }
+
+    func showSetup(step: Int = 0) {
         setupWindow?.close()
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 580),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 640),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered, defer: false)
         w.title = "Set up Todo Widget"
         w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
-        w.contentView = NSHostingView(rootView: SetupView(model: model, prefs: prefs) { [weak self] in
-            self?.setupWindow?.close()
-            self?.setupWindow = nil
+        w.contentView = NSHostingView(rootView: SetupView(model: model, prefs: prefs, onFinish: { [weak self] in
+            self?.closeSetup()
             self?.drawer.open()
-        })
+        }, step: SetupView.Step(rawValue: step) ?? .welcome))
         w.center()
         setupWindow = w
         NSApp.activate()
         w.makeKeyAndOrderFront(nil)
+    }
+
+    func closeSetup() {
+        setupWindow?.close()
+        setupWindow = nil
     }
 
     /// Reset preferences and stored configuration (and optionally all tasks), then run setup again.
@@ -98,12 +92,39 @@ final class AppServices {
             return
         }
         prefs.resetToDefaults()
-        for k in ["notifiedRuns", "notifiedBaseline"] { UserDefaults.standard.removeObject(forKey: k) }
+        for k in ["notifiedRuns", "notifiedBaseline"] { AppDefaults.removeObject(forKey: k) }
         drawer.close()
-        settingsWindow?.close()
-        settingsWindow = nil
+        closeSettings()
         model.reload()
         showSetup()
+    }
+
+    var isSettingsOpen: Bool { settingsWindow?.isVisible == true }
+    var isSetupOpen: Bool { setupWindow?.isVisible == true }
+    var windowNumbers: [String: Int] {
+        var w = drawer.windowNumbers
+        w["settings"] = settingsWindow?.isVisible == true ? settingsWindow!.windowNumber : 0
+        w["setup"] = setupWindow?.isVisible == true ? setupWindow!.windowNumber : 0
+        return w
+    }
+
+    /// Render one of the app's windows to `<dir>/<name>.png` (own windows only; no Screen Recording needed).
+    func snapshot(window: String, name: String, to dir: URL) throws -> String {
+        let view: NSView? = switch window {
+        case "settings": settingsWindow?.contentView
+        case "setup": setupWindow?.contentView
+        default: drawer.panel(window)?.contentView
+        }
+        guard let view, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            throw E2EServer.Failure(description: "window '\(window)' is not open")
+        }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let url = dir.appendingPathComponent("\(name).png")
+        guard let png = rep.representation(using: .png, properties: [:]) else {
+            throw E2EServer.Failure(description: "could not encode PNG")
+        }
+        try png.write(to: url)
+        return url.path
     }
 
     /// Clear done tasks right after local midnight even if the drawer stays closed.
