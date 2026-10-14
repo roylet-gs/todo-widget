@@ -79,7 +79,7 @@ struct DrawerView: View {
     var body: some View {
         ZStack {
             if let task = model.selected {
-                TaskDetailView(model: model, controller: controller, task: task)
+                TaskDetailView(model: model, prefs: prefs, controller: controller, task: task)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
                 TaskListView(model: model, prefs: prefs, updater: updater, controller: controller)
@@ -88,12 +88,20 @@ struct DrawerView: View {
         }
         .animation(.snappy(duration: 0.22), value: model.selectedId)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            if model.showShortcuts {
+                ShortcutsSheet(model: model, prefs: prefs)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            }
+        }
+        .animation(.snappy(duration: 0.18), value: model.showShortcuts)
         .liquidGlass(.regular, in: .rect(cornerRadius: 26))
         .overlay(alignment: prefs.edge == .right ? .leading : .trailing) { resizeHandle }
-        .onExitCommand {
-            if model.selectedId != nil { model.select(nil) } else { controller.close() }
-        }
-        .background(shortcuts)
+        // Keys are handled by `DrawerKeys`; ⌘W isn't configurable, so it stays a plain shortcut.
+        .background(
+            Button("Close") { controller.close() }.keyboardShortcut("w", modifiers: .command)
+                .opacity(0).allowsHitTesting(false)
+        )
     }
 
     /// An invisible strip on the drawer's inner edge; drag it to make the drawer wider or narrower.
@@ -110,16 +118,53 @@ struct DrawerView: View {
             )
             .accessibilityHidden(true)
     }
+}
 
-    /// Hidden buttons that own the drawer's keyboard shortcuts.
-    private var shortcuts: some View {
-        Group {
-            Button("Undo") { model.undo() }.keyboardShortcut("z", modifiers: .command)
-            Button("Redo") { model.redo() }.keyboardShortcut("z", modifiers: [.command, .shift])
-            Button("Close") { controller.close() }.keyboardShortcut("w", modifiers: .command)
+/// Every binding, grouped, over the drawer. Opened with ? (by default) or the footer link.
+struct ShortcutsSheet: View {
+    let model: AppModel
+    let prefs: Preferences
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Keyboard shortcuts").font(.system(size: 15, weight: .bold))
+                Spacer()
+                Button { model.showShortcuts = false } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .keyHelp(prefs, "Close", .back)
+                    .accessibilityLabel("Close")
+            }
+            .padding(.bottom, 8)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(KeyGroup.allCases, id: \.self) { g in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(g.rawValue.uppercased()).font(.system(size: 10, weight: .semibold)).kerning(0.8).foregroundStyle(.secondary)
+                            ForEach(KeyAction.allCases.filter { $0.group == g }) { a in
+                                HStack {
+                                    Text(a.title).font(.callout)
+                                    Spacer()
+                                    KeyCap(prefs.key(a).spoken)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                    }
+                }
+            }
+            .scrollIndicators(.never)
+            Button("Change shortcuts in Settings…") {
+                model.showShortcuts = false
+                AppServices.shared?.showSettings(tab: .keyboard)
+            }
+            .buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(.tint)
+            .padding(.top, 8)
         }
-        .opacity(0)
-        .allowsHitTesting(false)
+        .padding(16)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(E2E.flatGlass ? 1 : 0.92), in: .rect(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+        .padding(14)
     }
 }
 
@@ -131,10 +176,8 @@ struct TaskListView: View {
 
     @State private var newTitle = ""
     @State private var runsExpanded = false
-    @State private var doneExpanded = false
     @State private var dragging: String?
     @State private var dropTarget: String?
-    @State private var hovered: String?
     @FocusState private var addFocused: Bool
 
     private let todayCount = 5
@@ -145,6 +188,7 @@ struct TaskListView: View {
             if updater.updateAvailable { updateBanner }
             if !model.recentRuns.isEmpty { runStrip }
             quickAdd
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(model.open.prefix(todayCount).enumerated()), id: \.element.id) { i, t in row(t, index: i) }
@@ -164,9 +208,54 @@ struct TaskListView: View {
                 .padding(.bottom, 10)
             }
             .scrollIndicators(.never)
+            .onChange(of: model.highlightedId) { _, id in
+                guard let id else { return }
+                withAnimation(.snappy(duration: 0.15)) { proxy.scrollTo(id) }
+            }
+            }
             if let toast = model.toast { toastView(toast) }
+            if prefs.showKeyHints { keyFooter }
         }
-        .background(nudgeShortcuts)
+        .onChange(of: model.wantsQuickAdd) { _, w in if w { focusQuickAdd() } }
+        .onAppear { if model.wantsQuickAdd { focusQuickAdd() } }
+    }
+
+    private func focusQuickAdd() {
+        model.wantsQuickAdd = false
+        controller.engage()
+        addFocused = true
+    }
+
+    /// What the keyboard can do right now, along the bottom of the list.
+    private var keyFooter: some View {
+        HStack(spacing: 8) {
+            footerHint(prefs.key(.previous).display + prefs.key(.next).display, "Select")
+            footerHint(prefs.key(.open).display, "Open")
+            footerHint(prefs.key(.toggleDone).display, "Done")
+            footerHint(prefs.key(.delete).display, "Delete")
+            Spacer(minLength: 4)
+            Button { model.showShortcuts = true } label: {
+                HStack(spacing: 4) {
+                    KeyCap(prefs.key(.shortcuts).display)
+                    Text("Shortcuts")
+                }
+                .fixedSize()
+            }
+            .buttonStyle(.plain)
+            .keyHelp(prefs, "Show all keyboard shortcuts", .shortcuts)
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 12)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func footerHint(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            KeyCap(key)
+            Text(label)
+        }
+        .fixedSize()
     }
 
     // MARK: header
@@ -191,6 +280,7 @@ struct TaskListView: View {
                         }
                         .glassButton(prominent: true)
                         .disabled(runner.isRunning)
+                        .keyHelp(prefs, "Run the agent now", .runNow)
                     }
                     Button { prefs.pinned.toggle() } label: {
                         Image(systemName: prefs.pinned ? "pin.fill" : "pin").frame(width: 16, height: 16)
@@ -198,7 +288,7 @@ struct TaskListView: View {
                     .glassButton()
                     .buttonBorderShape(.roundedRectangle(radius: 8))
                     .focusEffectDisabled()
-                    .help(prefs.pinned ? "Unpin: close when the pointer leaves" : "Pin the drawer open")
+                    .keyHelp(prefs, prefs.pinned ? "Unpin: close when the pointer leaves" : "Pin the drawer open", .pin)
                     .accessibilityLabel(prefs.pinned ? "Unpin drawer" : "Pin drawer open")
                     Button { AppServices.shared?.showSettings() } label: {
                         Image(systemName: "slider.horizontal.3").frame(width: 16, height: 16)
@@ -206,6 +296,7 @@ struct TaskListView: View {
                         .glassButton()
                         .buttonBorderShape(.roundedRectangle(radius: 8))
                         .focusEffectDisabled()
+                        .keyHelp(prefs, "Settings", .settings)
                         .accessibilityLabel("Settings")
                 }
             }
@@ -308,16 +399,13 @@ struct TaskListView: View {
                     newTitle = ""
                 }
                 .onChange(of: addFocused) { _, f in if f { controller.engage() } }
-            Text("⌘N").font(.caption2).foregroundStyle(.tertiary)
+            if prefs.showKeyHints { KeyCap(prefs.key(.newTask).display) }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         .background(.fill.tertiary, in: .rect(cornerRadius: 14))
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
-        .background(
-            Button("New task") { controller.engage(); addFocused = true }
-                .keyboardShortcut("n", modifiers: .command).opacity(0).allowsHitTesting(false)
-        )
+        .keyHelp(prefs, "New task", .newTask)
     }
 
     // MARK: rows
@@ -326,7 +414,8 @@ struct TaskListView: View {
         let fromIndex = dragging.flatMap { id in model.open.firstIndex { $0.id == id } }
         let movingDown = (fromIndex ?? 0) < index
         let isTarget = dropTarget == t.id && dragging != t.id
-        return TaskRow(task: t, chip: t.chip(lastSeen: model.lastSeenAt), onToggle: { model.toggleDone(t) }, onOpen: {
+        return TaskRow(task: t, chip: t.chip(lastSeen: model.lastSeenAt), highlighted: model.highlightedId == t.id,
+                       prefs: prefs, onToggle: { model.toggleDone(t) }, onOpen: {
             controller.engage()
             model.select(t)
         })
@@ -334,7 +423,7 @@ struct TaskListView: View {
         .overlay(alignment: movingDown ? .bottom : .top) {
             if isTarget { Capsule().fill(Color.accentColor).frame(height: 3).padding(.horizontal, 6) }
         }
-        .onHover { hovered = $0 ? t.id : (hovered == t.id ? nil : hovered) }
+        .onHover { if $0 { model.hoverHighlight(t.id) } }
         .onDrag {
             dragging = t.id
             return NSItemProvider(object: t.id as NSString)
@@ -348,24 +437,13 @@ struct TaskListView: View {
             if inside { dropTarget = t.id } else if dropTarget == t.id { dropTarget = nil }
         }
         .contextMenu {
-            Button("Open") { model.select(t) }
-            Button("Mark done") { model.toggleDone(t) }
-            Button("Move up") { model.nudge(t.id, by: -1) }.disabled(index == 0)
-            Button("Move down") { model.nudge(t.id, by: 1) }
+            Button("Open") { model.select(t) }.menuShortcut(prefs, .open)
+            Button("Mark done") { model.toggleDone(t) }.menuShortcut(prefs, .toggleDone)
+            Button("Move up") { model.nudge(t.id, by: -1) }.menuShortcut(prefs, .moveUp).disabled(index == 0)
+            Button("Move down") { model.nudge(t.id, by: 1) }.menuShortcut(prefs, .moveDown)
             Divider()
-            Button("Delete", role: .destructive) { model.delete(t) }
+            Button("Delete", role: .destructive) { model.delete(t) }.menuShortcut(prefs, .delete)
         }
-    }
-
-    /// ⌥⌘↑ / ⌥⌘↓ move the hovered task.
-    private var nudgeShortcuts: some View {
-        Group {
-            Button("Move up") { if let h = hovered { model.nudge(h, by: -1) } }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-            Button("Move down") { if let h = hovered { model.nudge(h, by: 1) } }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-        }
-        .opacity(0).allowsHitTesting(false)
     }
 
     private func sectionDivider(_ title: String) -> some View {
@@ -379,10 +457,10 @@ struct TaskListView: View {
 
     private var doneSection: some View {
         VStack(spacing: 2) {
-            Button { withAnimation(.snappy) { doneExpanded.toggle() } } label: {
+            Button { withAnimation(.snappy) { model.doneExpanded.toggle() } } label: {
                 HStack {
                     Text("Done today · \(model.done.count)").font(.caption.weight(.semibold))
-                    Image(systemName: doneExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
+                    Image(systemName: model.doneExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
                     Spacer()
                     Text(prefs.clearDone == .never ? "" : prefs.clearDone == .midnight ? "Clears at midnight" : "Clears after 24 h")
                         .font(.caption)
@@ -392,10 +470,13 @@ struct TaskListView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyHelp(prefs, model.doneExpanded ? "Hide done tasks" : "Show done tasks", .toggleDoneSection)
             .padding(.top, 10)
-            if doneExpanded {
+            if model.doneExpanded {
                 ForEach(model.done, id: \.id) { t in
-                    TaskRow(task: t, chip: nil, onToggle: { model.toggleDone(t) }, onOpen: { model.select(t) })
+                    TaskRow(task: t, chip: nil, highlighted: model.highlightedId == t.id, prefs: prefs,
+                            onToggle: { model.toggleDone(t) }, onOpen: { controller.engage(); model.select(t) })
+                        .onHover { if $0 { model.hoverHighlight(t.id) } }
                 }
             }
         }
@@ -406,7 +487,7 @@ struct TaskListView: View {
             Text(toast.text).font(.caption).lineLimit(2)
             Spacer(minLength: 4)
             if toast.undoable {
-                Button("Undo ⌘Z") { model.undo() }.buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                Button("Undo \(prefs.key(.undo).display)") { model.undo() }.buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(.tint)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
@@ -420,6 +501,8 @@ struct TaskListView: View {
 struct TaskRow: View {
     let task: TodoTask
     let chip: String?
+    var highlighted = false
+    let prefs: Preferences
     let onToggle: () -> Void
     let onOpen: () -> Void
     @State private var hover = false
@@ -445,6 +528,7 @@ struct TaskRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(task.isDone ? "Mark not done" : "Mark done")
+            .keyHelp(prefs, task.isDone ? "Mark not done" : "Mark done", .toggleDone)
             if !task.isDone {
                 Capsule().fill(Palette.priority(task.priority)).frame(width: 4, height: 26).accessibilityHidden(true)
             }
@@ -463,6 +547,7 @@ struct TaskRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyHelp(prefs, "Open", .open)
             if let chip {
                 Text(chip)
                     .font(.system(size: 10, weight: .semibold))
@@ -479,8 +564,14 @@ struct TaskRow: View {
         .background {
             if task.unread && !task.isDone {
                 RoundedRectangle(cornerRadius: 14).fill(.fill.secondary)
-            } else if hover {
+            } else if hover || highlighted {
                 RoundedRectangle(cornerRadius: 14).fill(.fill.quaternary)
+            }
+        }
+        .overlay {
+            // The keyboard cursor.
+            if highlighted {
+                RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1.5)
             }
         }
         .onHover { hover = $0 }

@@ -187,6 +187,34 @@ final class E2EServer {
         case "drag_end":
             s.drawer.endTabDrag()
             dragStart = nil
+        case "key":
+            // Goes through the same dispatcher as real key presses in the drawer.
+            let b = KeyBinding(cmd["key"] as? String ?? "", mods(cmd["modifiers"]))
+            let handled = s.drawer.keys.handle(b)
+            var r = state()
+            r["handled"] = handled
+            return r
+        case "focus_quick_add":
+            s.drawer.keys.perform(.newTask)
+        case "modifier_events":
+            // Synthetic modifier presses for the double-tap detector: "down", "up" or "key", 50 ms apart.
+            let m = Mod(rawValue: cmd["modifier"] as? String ?? "command") ?? .command
+            var t = ProcessInfo.processInfo.systemUptime
+            for e in cmd["events"] as? [String] ?? [] {
+                t += 0.05
+                switch e {
+                case "down": s.hotkey.flagsChanged([m], at: t)
+                case "up": s.hotkey.flagsChanged([], at: t)
+                default: s.hotkey.keyDown()
+                }
+            }
+        case "set_keybinding":
+            guard let a = KeyAction(rawValue: cmd["action"] as? String ?? "") else { throw Failure(description: "unknown action") }
+            let b = (cmd["doubleTap"] as? String).flatMap(Mod.init(rawValue:)).map { KeyBinding(doubleTap: $0) }
+                ?? KeyBinding(cmd["key"] as? String ?? "", mods(cmd["modifiers"]))
+            s.prefs.keymap.set(b, for: a)
+        case "reset_keymap":
+            s.prefs.keymap = Keymap()
         case "simulate_update":
             s.updater.simulate(latest: cmd["latest"] as? String ?? "99.0.0", brew: cmd["brew"] as? String ?? "/usr/bin/false")
         case "update_now":
@@ -226,8 +254,13 @@ final class E2EServer {
         case "pinned": p.pinned = value as? Bool ?? false
         case "clearDone": p.clearDone = ClearDone(rawValue: v) ?? .midnight
         case "runnerEnabled": p.runnerEnabled = value as? Bool ?? false
+        case "showKeyHints": p.showKeyHints = value as? Bool ?? true
         default: throw Failure(description: "unknown pref \(key)")
         }
+    }
+
+    private func mods(_ v: Any?) -> [Mod] {
+        (v as? [String] ?? []).compactMap(Mod.init(rawValue:))
     }
 
     private func rect(_ r: NSRect) -> [String: Double] {
@@ -250,6 +283,11 @@ final class E2EServer {
             "schedulePrompt": (try? m.store.renderSetupPrompt()) ?? "",
             "discoveryPrompt": m.store.renderDiscoveryPrompt(),
             "selected": m.selected?.title ?? NSNull(),
+            "highlighted": m.highlighted?.title ?? NSNull(),
+            "doneExpanded": m.doneExpanded,
+            "shortcutsOpen": m.showShortcuts,
+            "typing": s.drawer.keys.typing,
+            "keymap": Dictionary(uniqueKeysWithValues: KeyAction.allCases.map { ($0.rawValue, s.prefs.key($0).spoken) }),
             "toast": m.toast?.text ?? NSNull(),
             "update": ["available": s.updater.updateAvailable, "updating": s.updater.updating,
                        "error": s.updater.updateError ?? ""] as [String: Any],

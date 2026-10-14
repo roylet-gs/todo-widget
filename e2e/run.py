@@ -362,11 +362,130 @@ def click_outside_closes_unless_pinned(app: App):
 
 @spec
 def settings_tabs(app: App):
-    for tab in ["general", "sources", "prompt", "schedule", "history"]:
+    for tab in ["general", "keyboard", "sources", "prompt", "schedule", "history"]:
         s = app.cmd("settings", tab=tab)
         expect(s["settingsOpen"], f"settings did not open on {tab}")
         app.snapshot("settings", tab)
     app.cmd("close_settings")
+
+
+@spec
+def keyboard_navigate_and_open(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    s = app.cmd("open_drawer")
+    order = titles(s["open"])
+    expect(s["highlighted"] == order[0], f"opening should highlight the first task: {s['highlighted']}")
+    app.cmd("key", key="down")
+    s = app.cmd("key", key="down")
+    expect(s["highlighted"] == order[2], f"two downs: {s['highlighted']} (handled={s['handled']} typing={s['typing']})")
+    app.snapshot("drawer", "highlighted")
+    s = app.cmd("key", key="up")
+    expect(s["highlighted"] == order[1], f"up: {s['highlighted']}")
+    s = app.cmd("key", key="down", modifiers=["command"])
+    expect(s["highlighted"] == order[-1], f"cmd-down should go to the last task: {s['highlighted']}")
+    s = app.cmd("key", key="up", modifiers=["command"])
+    expect(s["highlighted"] == order[0], f"cmd-up should go to the first task: {s['highlighted']}")
+    app.cmd("key", key="down")
+    s = app.cmd("key", key="return")
+    expect(s["selected"] == order[1], f"return should open the highlighted task: {s['selected']}")
+    app.settle()
+    app.snapshot("drawer", "detail-keys")
+    s = app.cmd("key", key="escape")
+    expect(s["selected"] is None and s["highlighted"] == order[1], f"esc back keeps highlight: {s['highlighted']}")
+    s = app.cmd("key", key="?")
+    expect(s["shortcutsOpen"], "? should open the shortcuts sheet")
+    app.settle()
+    app.snapshot("drawer", "shortcuts")
+    s = app.cmd("key", key="escape")
+    expect(not s["shortcutsOpen"] and s["drawerOpen"],
+           f"esc should close the sheet, not the drawer: sheet={s['shortcutsOpen']} open={s['drawerOpen']} handled={s['handled']} typing={s['typing']}")
+    s = app.cmd("key", key="escape")
+    expect(not s["drawerOpen"], "esc on the list should close the drawer")
+
+
+@spec
+def keyboard_done_delete_undo(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    s = app.cmd("open_drawer")
+    order = titles(s["open"])
+    s = app.cmd("key", key="space")
+    s = app.wait_state(lambda s: order[0] in titles(s["done"]), "space should mark the first task done")
+    expect(s["highlighted"] == order[1], f"highlight should move to the next task: {s['highlighted']}")
+    app.cmd("key", key="delete")
+    s = app.wait_state(lambda s: order[1] not in titles(s["open"]), "delete should remove the highlighted task")
+    expect(s["highlighted"] == order[2], f"highlight after delete: {s['highlighted']}")
+    s = app.cmd("key", key="z", modifiers=["command"])
+    s = app.wait_state(lambda s: order[1] in titles(s["open"]), "cmd-z should restore the deleted task")
+    # Move the highlighted task up with the keyboard.
+    app.cmd("key", key="up", modifiers=["option", "command"])
+    app.wait_state(lambda s: titles(s["open"]).index(order[2]) == 0, "opt-cmd-up should move the task up")
+    # Done section and detail actions.
+    s = app.cmd("key", key="d", modifiers=["command"])
+    expect(s["doneExpanded"], "cmd-d should expand done tasks")
+    s = app.cmd("key", key="up", modifiers=["command"])
+    s = app.cmd("key", key="return")
+    expect(s["selected"] is not None, "return should open the task")
+    title = s["selected"]
+    s = app.cmd("key", key="space")
+    expect(s["selected"] is None, "marking done from the detail should go back to the list")
+    app.wait_state(lambda s: title in titles(s["done"]), "space in detail should mark it done")
+
+
+@spec
+def keyboard_text_field_passthrough(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    s = app.cmd("open_drawer")
+    n = len(s["open"])
+    s = app.cmd("focus_quick_add")
+    app.settle()
+    s = app.state()
+    if not s["typing"]:
+        print("    (quick add did not take focus offscreen; skipping passthrough checks)")
+        return
+    s = app.cmd("key", key="space")
+    expect(not s["handled"] and len(s["open"]) == n, "space in quick add should type, not mark done")
+    s = app.cmd("key", key="delete")
+    expect(not s["handled"], "delete in quick add should edit text, not delete a task")
+    s = app.cmd("key", key="escape")
+    expect(s["handled"] and not s["typing"] and s["drawerOpen"], "esc should leave the field, not close the drawer")
+
+
+@spec
+def keyboard_global_toggle(app: App):
+    s = app.cmd("modifier_events", modifier="command", events=["down", "up", "down", "up"])
+    expect(s["drawerOpen"], "double-tap cmd should open the drawer")
+    s = app.cmd("modifier_events", modifier="command", events=["down", "up", "down", "up"])
+    expect(not s["drawerOpen"], "double-tap cmd again should close it")
+    s = app.cmd("modifier_events", modifier="command", events=["down", "key", "up", "down", "up"])
+    expect(not s["drawerOpen"], "cmd-C then a tap is not a double tap")
+    s = app.cmd("modifier_events", modifier="option", events=["down", "up", "down", "up"])
+    expect(not s["drawerOpen"], "double-tap option should do nothing by default")
+    app.cmd("set_keybinding", action="toggleWidget", doubleTap="option")
+    s = app.cmd("modifier_events", modifier="option", events=["down", "up", "down", "up"])
+    expect(s["drawerOpen"], "double-tap option should toggle once bound")
+    expect(s["keymap"]["toggleWidget"] == "Double-tap ⌥", f"keymap: {s['keymap']['toggleWidget']}")
+
+
+@spec
+def keyboard_rebind(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    s = app.cmd("open_drawer")
+    order = titles(s["open"])
+    app.cmd("set_keybinding", action="toggleDone", key="x")
+    s = app.cmd("key", key="space")
+    expect(not s["handled"] and order[0] in titles(s["open"]), "space should no longer mark done")
+    s = app.cmd("key", key="x")
+    expect(s["handled"], "x should be handled once bound")
+    s = app.wait_state(lambda s: order[0] in titles(s["done"]), "x should mark done once bound")
+    expect(s["keymap"]["toggleDone"] == "X", f"keymap: {s['keymap']['toggleDone']}")
+    app.snapshot("drawer", "rebound")
+    app.cmd("settings", tab="keyboard")
+    app.snapshot("settings", "keyboard-rebound")
+    app.cmd("close_settings")
+    app.cmd("set_pref", key="showKeyHints", value=False)
+    app.snapshot("drawer", "no-hints")
+    s = app.cmd("reset_keymap")
+    expect(s["keymap"]["toggleDone"] == "Space", "reset should restore Space")
 
 
 @spec
