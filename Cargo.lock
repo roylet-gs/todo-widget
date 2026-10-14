@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "todo-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "todo-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "uniffi-bindgen"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "uniffi",
 ]
