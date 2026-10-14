@@ -102,7 +102,7 @@ final class Updater {
     func updateNow() {
         guard method == .homebrew, !updating else { return }
         let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { FileManager.default.isExecutableFile(atPath: $0) } ?? "brew"
-        let script = "\(brew) update && \(brew) upgrade --cask \(Self.caskName); open -a 'Todo Widget' || open /Applications/TodoWidget.app"
+        let script = "\(brew) update && \(brew) upgrade --cask \(Self.caskName); open -a TodoWidget || open /Applications/TodoWidget.app"
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("todowidget-update.log").path
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
