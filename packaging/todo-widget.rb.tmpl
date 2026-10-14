@@ -11,14 +11,14 @@ cask "todo-widget" do
   desc "Always-on todo list that AI agents keep up to date through a local MCP server"
   homepage "https://github.com/roylet-gs/todo-widget"
 
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
 
   app "TodoWidget.app"
   binary "#{appdir}/TodoWidget.app/Contents/MacOS/todo"
 
   # The app is ad-hoc signed (not notarized), so clear the download quarantine flag.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/TodoWidget.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/TodoWidget.app"], must_succeed: false
   end
 
   uninstall quit: "com.todowidget.app"
