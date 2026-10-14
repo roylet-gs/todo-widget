@@ -339,6 +339,21 @@ def settings_tabs(app: App):
 
 
 @spec
+def update_failure(app: App):
+    # A failed Homebrew upgrade must give the button back and say why, not hang on "Updating…".
+    app.cmd("open_drawer")
+    s = app.cmd("simulate_update", latest="99.0.0", brew="/usr/bin/false")
+    expect(s["update"]["available"], "update banner should be offered")
+    app.settle()
+    app.snapshot("drawer", "update-available")
+    app.cmd("update_now")
+    s = app.wait_state(lambda s: not s["update"]["updating"] and s["update"]["error"], "update never finished")
+    expect("Update failed" in s["update"]["error"], f"unexpected error: {s['update']['error']}")
+    app.settle()
+    app.snapshot("drawer", "update-failed")
+
+
+@spec
 def setup_flow(app: App):
     for step, label in enumerate(["welcome", "connect", "sources", "schedule", "done"]):
         s = app.cmd("setup", step=step)

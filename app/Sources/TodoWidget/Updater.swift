@@ -11,6 +11,7 @@ final class Updater {
     nonisolated static let repo = "roylet-gs/todo-widget"
     nonisolated static let caskName = "todo-widget"
     private static let interval: TimeInterval = 6 * 60 * 60
+    nonisolated static let logPath = FileManager.default.temporaryDirectory.appendingPathComponent("todowidget-update.log").path
 
     enum InstallMethod {
         case homebrew, manual, dev
@@ -34,12 +35,14 @@ final class Updater {
     }
 
     let current: String
-    let method = InstallMethod.current
+    private(set) var method = InstallMethod.current
     private(set) var latest: String?
     private(set) var lastChecked: Date?
     private(set) var checking = false
     private(set) var updating = false
+    private(set) var updateError: String?
     private var timer: Timer?
+    private var brewPath: String?
     private let d = AppDefaults
 
     var updateAvailable: Bool {
@@ -98,21 +101,50 @@ final class Updater {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "update-\(version)", content: c, trigger: nil))
     }
 
-    /// Homebrew installs: run the upgrade detached (it quits this app), then reopen.
+    /// Homebrew installs: run the upgrade detached, then quit this app and reopen the new one.
+    /// `brew upgrade` replaces the bundle on disk but leaves the running app alone, so the
+    /// script does the restart itself. If the upgrade fails the app stays up and says so.
     func updateNow() {
         guard method == .homebrew, !updating else { return }
-        let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { FileManager.default.isExecutableFile(atPath: $0) } ?? "brew"
-        let script = "\(brew) update && \(brew) upgrade --cask \(Self.caskName); open -a TodoWidget || open /Applications/TodoWidget.app"
-        let log = FileManager.default.temporaryDirectory.appendingPathComponent("todowidget-update.log").path
+        let brew = brewPath ?? ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { FileManager.default.isExecutableFile(atPath: $0) } ?? "brew"
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let app = Bundle.main.bundleURL.path
+        let script = """
+            \(brew) update && \(brew) upgrade --cask \(Self.caskName) || exit 1
+            kill \(pid) 2>/dev/null
+            while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
+            open '\(app)' || open -a TodoWidget
+            """
+        let log = Self.logPath
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
-        p.arguments = ["/bin/zsh", "-lc", "\(script) > '\(log)' 2>&1"]
+        p.arguments = ["/bin/zsh", "-lc", "{\n\(script)\n} > '\(log)' 2>&1"]
+        p.terminationHandler = { proc in
+            let failed = proc.terminationStatus != 0
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self.updateFinished(failed: failed) }
+            }
+        }
         do {
             try p.run()
             updating = true
+            updateError = nil
         } catch {
-            NSWorkspace.shared.open(URL(string: "https://github.com/\(Self.repo)/releases/latest")!)
+            openReleasePage()
         }
+    }
+
+    private func updateFinished(failed: Bool) {
+        updating = false
+        if failed { updateError = "Update failed" }
+    }
+
+    /// e2e: pretend `version` is out and Homebrew lives at `brew`, so the update flow runs
+    /// without the network or a real upgrade.
+    func simulate(latest version: String, brew: String) {
+        latest = version
+        method = .homebrew
+        brewPath = brew
     }
 
     func openReleasePage() {

@@ -73,6 +73,7 @@ struct EdgeTabView: View {
 struct DrawerView: View {
     let model: AppModel
     let prefs: Preferences
+    let updater: Updater
     let controller: DrawerController
 
     var body: some View {
@@ -81,7 +82,7 @@ struct DrawerView: View {
                 TaskDetailView(model: model, controller: controller, task: task)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                TaskListView(model: model, prefs: prefs, controller: controller)
+                TaskListView(model: model, prefs: prefs, updater: updater, controller: controller)
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
@@ -109,6 +110,7 @@ struct DrawerView: View {
 struct TaskListView: View {
     let model: AppModel
     let prefs: Preferences
+    let updater: Updater
     let controller: DrawerController
 
     @State private var newTitle = ""
@@ -124,7 +126,7 @@ struct TaskListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if let updater = AppServices.shared?.updater, updater.updateAvailable { updateBanner(updater) }
+            if updater.updateAvailable { updateBanner }
             if !model.recentRuns.isEmpty { runStrip }
             quickAdd
             ScrollView {
@@ -199,10 +201,10 @@ struct TaskListView: View {
 
     // MARK: update
 
-    private func updateBanner(_ updater: Updater) -> some View {
+    private var updateBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.down.circle").foregroundStyle(.tint)
-            Text("Todo Widget \(updater.latest ?? "") is available").font(.caption.weight(.semibold))
+            Text(updater.updateError ?? "Todo Widget \(updater.latest ?? "") is available").font(.caption.weight(.semibold))
             Spacer(minLength: 4)
             Button(updater.updating ? "Updating…" : (updater.method == .homebrew ? "Update" : "Get it")) {
                 if updater.method == .homebrew { updater.updateNow() } else { updater.openReleasePage() }

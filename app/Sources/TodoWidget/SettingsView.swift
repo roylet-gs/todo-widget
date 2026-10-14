@@ -439,6 +439,7 @@ struct UpdatesCard: View {
 
     private var detail: String {
         if updater.updating { return "Updating with Homebrew. The app will restart when it's done." }
+        if let error = updater.updateError { return "\(error). Homebrew's output is in \(Updater.logPath)." }
         if updater.updateAvailable { return "Version \(updater.latest ?? "") is available." }
         if let checked = updater.lastChecked {
             return "Up to date. Checked \(clockTime(Int64(checked.timeIntervalSince1970 * 1000)))."
