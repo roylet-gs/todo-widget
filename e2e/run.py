@@ -467,6 +467,23 @@ def keyboard_global_toggle(app: App):
 
 
 @spec
+def keyboard_footer_toggle_hint(app: App):
+    # The footer tells you how to hide the widget, and gives that hint up first when the drawer is narrow.
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("set_pref", key="drawerWidth", value=400)
+    app.cmd("open_drawer")
+    app.settle()
+    app.snapshot("drawer", "footer-toggle")
+    app.cmd("set_pref", key="drawerWidth", value=340)
+    app.settle()
+    app.snapshot("drawer", "footer-narrow")
+    app.cmd("set_keybinding", action="toggleWidget", doubleTap="option")
+    app.cmd("set_pref", key="drawerWidth", value=480)
+    app.settle()
+    app.snapshot("drawer", "footer-toggle-option")
+
+
+@spec
 def keyboard_rebind(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     s = app.cmd("open_drawer")
