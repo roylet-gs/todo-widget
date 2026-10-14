@@ -267,7 +267,16 @@ final class DrawerController {
         drawerPanel.makeKey()
         installClickAway()
         keys.install(for: drawerPanel)
+        model.pointerAtKeyboard = NSEvent.mouseLocation
         model.ensureHighlight()
+        // A newly key window focuses its first text field (quick add), which would swallow the
+        // list's keys. Start on the list instead; ⌘N or a click focuses quick add.
+        releaseFieldFocus()
+        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.releaseFieldFocus() } }
+    }
+
+    private func releaseFieldFocus() {
+        if firstResponderIsText && !model.wantsQuickAdd { endTyping() }
     }
 
     func close() {

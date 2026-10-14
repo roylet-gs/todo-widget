@@ -423,7 +423,7 @@ struct TaskListView: View {
         .overlay(alignment: movingDown ? .bottom : .top) {
             if isTarget { Capsule().fill(Color.accentColor).frame(height: 3).padding(.horizontal, 6) }
         }
-        .onHover { if $0 { model.highlightedId = t.id } }
+        .onHover { if $0 { model.hoverHighlight(t.id) } }
         .onDrag {
             dragging = t.id
             return NSItemProvider(object: t.id as NSString)
@@ -476,7 +476,7 @@ struct TaskListView: View {
                 ForEach(model.done, id: \.id) { t in
                     TaskRow(task: t, chip: nil, highlighted: model.highlightedId == t.id, prefs: prefs,
                             onToggle: { model.toggleDone(t) }, onOpen: { controller.engage(); model.select(t) })
-                        .onHover { if $0 { model.highlightedId = t.id } }
+                        .onHover { if $0 { model.hoverHighlight(t.id) } }
                 }
             }
         }

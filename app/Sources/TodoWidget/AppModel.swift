@@ -28,6 +28,9 @@ final class AppModel {
     var selectedId: String?
     /// The keyboard cursor in the list (separate from `selectedId`, which shows a task's detail).
     var highlightedId: String?
+    /// Where the pointer was when the keyboard last moved the cursor. Rows sliding under a still
+    /// pointer (scrolling, reordering, the drawer opening) mustn't steal the cursor back.
+    @ObservationIgnored var pointerAtKeyboard: NSPoint?
     var doneExpanded = false
     /// The keyboard shortcuts overlay.
     var showShortcuts = false
@@ -74,6 +77,15 @@ final class AppModel {
             return
         }
         highlightedId = rows[min(max(i + delta, 0), rows.count - 1)].id
+    }
+
+    /// Hovering a row moves the cursor there, but only once the pointer has actually moved.
+    func hoverHighlight(_ id: String) {
+        // e2e drives the cursor itself; the real pointer of whoever is at the Mac mustn't move it.
+        if E2E.enabled { return }
+        if let p = pointerAtKeyboard, p == NSEvent.mouseLocation { return }
+        pointerAtKeyboard = nil
+        highlightedId = id
     }
 
     func highlightEnd(last: Bool) {

@@ -377,7 +377,7 @@ def keyboard_navigate_and_open(app: App):
     expect(s["highlighted"] == order[0], f"opening should highlight the first task: {s['highlighted']}")
     app.cmd("key", key="down")
     s = app.cmd("key", key="down")
-    expect(s["highlighted"] == order[2], f"two downs: {s['highlighted']}")
+    expect(s["highlighted"] == order[2], f"two downs: {s['highlighted']} (handled={s['handled']} typing={s['typing']})")
     app.snapshot("drawer", "highlighted")
     s = app.cmd("key", key="up")
     expect(s["highlighted"] == order[1], f"up: {s['highlighted']}")

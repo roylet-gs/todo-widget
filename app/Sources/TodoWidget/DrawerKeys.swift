@@ -52,6 +52,7 @@ final class DrawerKeys {
     @discardableResult
     func perform(_ action: KeyAction) -> Bool {
         let m = model
+        m.pointerAtKeyboard = NSEvent.mouseLocation
         if m.showShortcuts && action != .shortcuts && action != .back && action != .toggleWidget {
             m.showShortcuts = false
         }
