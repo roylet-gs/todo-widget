@@ -255,6 +255,7 @@ final class E2EServer {
         case "clearDone": p.clearDone = ClearDone(rawValue: v) ?? .midnight
         case "runnerEnabled": p.runnerEnabled = value as? Bool ?? false
         case "showKeyHints": p.showKeyHints = value as? Bool ?? true
+        case "drawerWidth": p.drawerWidth = value as? Double ?? 400
         default: throw Failure(description: "unknown pref \(key)")
         }
     }

@@ -227,27 +227,41 @@ struct TaskListView: View {
     }
 
     /// What the keyboard can do right now, along the bottom of the list.
+    /// As the drawer narrows, the Shortcuts label goes first (its ? key stays), then the global toggle hint.
     private var keyFooter: some View {
-        HStack(spacing: 8) {
-            footerHint(prefs.key(.previous).display + prefs.key(.next).display, "Select")
-            footerHint(prefs.key(.open).display, "Open")
-            footerHint(prefs.key(.toggleDone).display, "Done")
-            footerHint(prefs.key(.delete).display, "Delete")
-            Spacer(minLength: 4)
-            Button { model.showShortcuts = true } label: {
-                HStack(spacing: 4) {
-                    KeyCap(prefs.key(.shortcuts).display)
-                    Text("Shortcuts")
-                }
-                .fixedSize()
-            }
-            .buttonStyle(.plain)
-            .keyHelp(prefs, "Show all keyboard shortcuts", .shortcuts)
+        ViewThatFits(in: .horizontal) {
+            keyFooterRow(showToggle: true, shortcutsLabel: true)
+            keyFooterRow(showToggle: true, shortcutsLabel: false)
+            keyFooterRow(showToggle: false, shortcutsLabel: true)
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 12)
         .accessibilityElement(children: .contain)
+    }
+
+    private func keyFooterRow(showToggle: Bool, shortcutsLabel: Bool) -> some View {
+        HStack(spacing: 8) {
+            footerHint(prefs.key(.previous).display + prefs.key(.next).display, "Select")
+            footerHint(prefs.key(.open).display, "Open")
+            footerHint(prefs.key(.toggleDone).display, "Done")
+            footerHint(prefs.key(.delete).display, "Delete")
+            if showToggle {
+                footerHint(prefs.key(.toggleWidget).display, "Hide")
+                    .keyHelp(prefs, "Show or hide the widget from any app", .toggleWidget)
+            }
+            Spacer(minLength: 4)
+            Button { model.showShortcuts = true } label: {
+                HStack(spacing: 4) {
+                    KeyCap(prefs.key(.shortcuts).display)
+                    if shortcutsLabel { Text("Shortcuts") }
+                }
+                .fixedSize()
+            }
+            .buttonStyle(.plain)
+            .keyHelp(prefs, "Show all keyboard shortcuts", .shortcuts)
+            .accessibilityLabel("Shortcuts")
+        }
     }
 
     private func footerHint(_ key: String, _ label: String) -> some View {
