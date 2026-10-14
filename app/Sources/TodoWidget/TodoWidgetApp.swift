@@ -29,6 +29,7 @@ final class AppServices {
         model.onRunsFinished = { [weak self] runs in self?.notifier.check(runs) }
         model.reload()
         scheduleMidnight()
+        LoginItem.enableByDefaultOnce()
         // Debug hooks used for screenshots and manual testing.
         let env = ProcessInfo.processInfo.environment
         if !prefs.setupComplete && env["TODO_WIDGET_SKIP_SETUP"] != "1" && !E2E.enabled { showSetup() }

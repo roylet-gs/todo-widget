@@ -5,30 +5,54 @@ built-in `claude -p` runner) connect to a local MCP command, `todo mcp`, check y
 add, complete and re-rank tasks. You see one notification per run, changed tasks are marked unread, and every
 change can be undone.
 
-## Install
+## Quick start
+
+You need macOS 26 (Tahoe) or later and [Homebrew](https://brew.sh).
+
+**1. Install**
 
 ```sh
 brew tap roylet-gs/todo-widget https://github.com/roylet-gs/todo-widget
 brew install --cask todo-widget
 ```
 
-This installs `TodoWidget.app` into `/Applications` and links the `todo` CLI onto your PATH. Open the app once
-to run setup:
+This puts **TodoWidget** in your Applications folder and the `todo` command on your PATH.
 
-1. **Connect:** add the `todo` MCP to your agent (Claude Code, Claude Desktop, or any MCP client via a copied
-   config), and allow notifications and open-at-login.
-2. **Discover sources:** paste the discovery prompt into your agent. It asks which of your tools to check and
-   what matters in each, then saves the sources through the MCP (`save_source` / `remove_source`). The app
-   shows them read-only and updates live.
-3. **Schedule:** paste the schedule prompt into your agent's scheduler. By default it runs every hour,
-   Monday to Friday, 09:00–17:00. Each run calls `get_instructions`, so source and rule changes apply without
-   touching the schedule.
+**2. Open it**
 
-The app is agent-agnostic: agents pass their own name to `start_run` / `get_instructions`, and that name is
-shown next to their changes. Nothing is registered per agent. `todo prompt --discovery` and
-`todo prompt --setup` print the same prompts. The app checks GitHub for new releases every 6 hours, shows a banner in the drawer and a
-notification when one is out, and can run `brew upgrade --cask todo-widget` for you (Settings › General).
-Settings › General › Open at login starts it automatically when you log in.
+```sh
+open -a TodoWidget
+```
+
+You can also open **TodoWidget** from Spotlight (⌘ Space) or the Applications folder. It runs from the menu bar
+(no Dock icon) and opens automatically every time you log in; you can turn that off in Settings › General.
+
+**3. Follow the setup window** (it opens on first launch)
+
+1. **Connect:** add the `todo` MCP to the AI agent you use (one click for Claude Code or Claude Desktop, or copy
+   the config for any other MCP client), then allow notifications. If you added it to Claude Desktop,
+   restart Claude Desktop.
+2. **Discover sources:** copy the discovery prompt and paste it into a chat with your agent. It asks which of
+   your tools to check and what matters in each, then saves them. You'll see them appear in the setup window.
+3. **Schedule:** copy the schedule prompt and paste it into your agent's scheduler as a recurring task. By
+   default it runs every hour, Monday to Friday, 09:00–17:00 (adjustable).
+
+That's it. Your list lives in the small tab on the edge of your screen: click it to open the list, drag it to
+move it to the other side. You can run setup again any time from Settings › General.
+
+**Update:** the app tells you when a new version is out and can update itself (Settings › General), or run
+`brew update && brew upgrade --cask todo-widget`.
+
+**Uninstall:** `brew uninstall --cask todo-widget`. Add `--zap` to also delete your tasks and settings. Remove
+the `todo` entry from your agent's MCP settings too.
+
+## How it works
+
+The app is agent-agnostic: agents connect to the local `todo mcp` command, pass their own name to `start_run` /
+`get_instructions` (shown next to their changes; nothing is registered per agent), manage your sources with
+`save_source` / `remove_source`, and update the list. Every scheduled run calls `get_instructions` first, so
+changes to sources and rules apply without touching the schedule. `todo prompt --discovery` and
+`todo prompt --setup` print the setup prompts. The app checks GitHub for new releases every 6 hours.
 
 ## Releases
 

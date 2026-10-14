@@ -20,4 +20,14 @@ enum LoginItem {
     }
 
     static func openSystemSettings() { SMAppService.openSystemSettingsLoginItems() }
+
+    /// Open at login is on by default: register once, on the first launch of an installed copy.
+    /// Done only once so that turning it off in Settings sticks. Dev builds and e2e runs are skipped.
+    static func enableByDefaultOnce() {
+        let key = "loginItemDefaulted"
+        guard !E2E.enabled, !AppDefaults.bool(forKey: key),
+              Bundle.main.bundlePath.hasPrefix("/Applications/") else { return }
+        AppDefaults.set(true, forKey: key)
+        if !isEnabled { set(true) }
+    }
 }
