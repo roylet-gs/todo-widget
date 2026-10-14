@@ -1,6 +1,5 @@
 import ServiceManagement
 import SwiftUI
-import TodoCore
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general, sources, prompt, schedules, agents, history

@@ -1,5 +1,4 @@
 import SwiftUI
-import TodoCore
 
 /// First-run (and post-reset) setup: look & placement, sources, agents, schedule.
 struct SetupView: View {

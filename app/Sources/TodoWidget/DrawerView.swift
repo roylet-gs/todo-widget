@@ -1,5 +1,4 @@
 import SwiftUI
-import TodoCore
 
 enum Palette {
     static func priority(_ p: UInt8) -> Color {

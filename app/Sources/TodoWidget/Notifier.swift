@@ -1,5 +1,4 @@
 import Foundation
-import TodoCore
 import UserNotifications
 
 /// One notification per finished agent run, with Open and Undo actions.

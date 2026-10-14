@@ -2,5 +2,5 @@
 /build
 /app/.build
 /app/Generated
-/app/Sources/TodoCore/todo_core.swift
+/app/Sources/TodoWidget/Generated/
 .DS_Store

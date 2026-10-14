@@ -1,5 +1,4 @@
 import SwiftUI
-import TodoCore
 
 struct TaskDetailView: View {
     let model: AppModel

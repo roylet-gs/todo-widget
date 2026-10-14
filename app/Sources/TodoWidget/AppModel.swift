@@ -1,8 +1,7 @@
 import AppKit
 import Foundation
-import TodoCore
 
-typealias TodoTask = TodoCore.TodoItem
+typealias TodoTask = TodoItem
 
 struct Toast: Equatable {
     var text: String

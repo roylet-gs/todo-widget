@@ -6,10 +6,9 @@ let package = Package(
     platforms: [.macOS(.v26)],
     targets: [
         .binaryTarget(name: "TodoCoreFFI", path: "Generated/TodoCoreFFI.xcframework"),
-        .target(name: "TodoCore", dependencies: ["TodoCoreFFI"], path: "Sources/TodoCore"),
         .executableTarget(
             name: "TodoWidget",
-            dependencies: ["TodoCore"],
+            dependencies: ["TodoCoreFFI"],
             path: "Sources/TodoWidget"
         ),
     ]

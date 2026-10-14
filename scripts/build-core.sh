@@ -28,11 +28,12 @@ else
 fi
 
 GEN="$ROOT/app/Generated"
-rm -rf "$GEN" && mkdir -p "$GEN/include" "$ROOT/app/Sources/TodoCore"
+rm -rf "$GEN" && mkdir -p "$GEN/include" "$ROOT/app/Sources/TodoWidget/Generated"
 cargo run -q -p uniffi-bindgen -- generate "$META_LIB" --language swift --out-dir "$GEN"
 
-# Swift side of the bindings lives in its own SwiftPM target.
-mv "$GEN/todo_core.swift" "$ROOT/app/Sources/TodoCore/todo_core.swift"
+# The Swift side of the bindings compiles into the app target (a separate module
+# loses the static library's search path in Xcode 26 universal builds).
+mv "$GEN/todo_core.swift" "$ROOT/app/Sources/TodoWidget/Generated/todo_core.swift"
 mv "$GEN/todo_coreFFI.h" "$GEN/include/"
 mv "$GEN/todo_coreFFI.modulemap" "$GEN/include/module.modulemap"
 

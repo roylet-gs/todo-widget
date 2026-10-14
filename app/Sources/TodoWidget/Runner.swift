@@ -1,5 +1,4 @@
 import Foundation
-import TodoCore
 
 struct RunLogEntry: Codable, Identifiable, Equatable {
     var id = UUID()
