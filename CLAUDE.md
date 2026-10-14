@@ -21,6 +21,9 @@ preferences, never your real data), seeds it through the real CLI and MCP server
 commands (`E2EServer` in `app/Sources/TodoWidget/E2E.swift`), asserts on its state, and writes snapshots
 of its windows to `e2e/tmp/<spec>--<label>.png`.
 
+- `python3 e2e/run.py --vm [words…]` (`scripts/e2e-vm.sh`) runs the suite in a headless macOS 26 VM (Tart), so the
+  test app never appears on your screen; PNGs and logs are copied back to `e2e/tmp/`. First run clones a large
+  image and installs Rust in the VM; `E2E_VM_KEEP=1` leaves the VM running for faster repeat runs.
 - After any UI change, run the relevant specs and **read the PNGs** to check the result; add a spec (and an
   `E2EServer` command if needed) for new behaviour.
 - Snapshots draw Liquid Glass as solid fills (offscreen rendering can't draw glass), and the Settings sidebar

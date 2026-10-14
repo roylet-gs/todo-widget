@@ -561,6 +561,9 @@ def schedule_prompt_is_hourly(app: App):
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
+    if "--vm" in flags:  # run the whole thing inside a macOS VM, off your screen
+        rest = [a for a in sys.argv[1:] if a != "--vm"]
+        os.execv(str(ROOT / "scripts" / "e2e-vm.sh"), [str(ROOT / "scripts" / "e2e-vm.sh"), *rest])
     if "--list" in flags:
         print("\n".join(f.__name__ for f in SPECS))
         return 0
