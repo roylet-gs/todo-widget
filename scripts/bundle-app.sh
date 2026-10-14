@@ -23,6 +23,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$APPBIN" "$APP/Contents/MacOS/TodoWidget"
 cp "$LIBDIR/todo" "$APP/Contents/MacOS/todo"
 cp "app/Resources/Info.plist" "$APP/Contents/Info.plist"
+# Liquid Glass icon (edit app/Resources/AppIcon.icon in Icon Composer): Assets.car plus an AppIcon.icns fallback.
+xcrun actool "$ROOT/app/Resources/AppIcon.icon" --compile "$APP/Contents/Resources" --app-icon AppIcon \
+  --platform macosx --target-device mac --minimum-deployment-target 26.0 \
+  --output-partial-info-plist "$ROOT/build/AppIcon-partial.plist" >/dev/null
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 codesign --force --sign "${SIGN_IDENTITY:--}" --options runtime "$APP/Contents/MacOS/todo"
