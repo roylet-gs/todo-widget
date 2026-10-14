@@ -6,6 +6,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 PROFILE="${PROFILE:-release}"
+# Cargo's output folder for the built-in `dev` profile is `debug`.
+PROFILE_DIR="$PROFILE"; [[ "$PROFILE" == "dev" ]] && PROFILE_DIR=debug
 export MACOSX_DEPLOYMENT_TARGET=26.0
 TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 
@@ -13,15 +15,15 @@ if [[ "${UNIVERSAL:-0}" == "1" ]]; then
   for t in "${TARGETS[@]}"; do
     cargo build --profile "$PROFILE" --target "$t" -p todo-core -p todo-cli
   done
-  LIBDIR="target/universal/$PROFILE"
+  LIBDIR="target/universal/$PROFILE_DIR"
   mkdir -p "$LIBDIR"
-  lipo -create -output "$LIBDIR/libtodo_core.a" target/{aarch64,x86_64}-apple-darwin/"$PROFILE"/libtodo_core.a
-  lipo -create -output "$LIBDIR/todo" target/{aarch64,x86_64}-apple-darwin/"$PROFILE"/todo
+  lipo -create -output "$LIBDIR/libtodo_core.a" target/{aarch64,x86_64}-apple-darwin/"$PROFILE_DIR"/libtodo_core.a
+  lipo -create -output "$LIBDIR/todo" target/{aarch64,x86_64}-apple-darwin/"$PROFILE_DIR"/todo
   # Binding metadata is architecture-independent; read it from one slice.
-  META_LIB="target/aarch64-apple-darwin/$PROFILE/libtodo_core.dylib"
+  META_LIB="target/aarch64-apple-darwin/$PROFILE_DIR/libtodo_core.dylib"
 else
   cargo build --profile "$PROFILE" -p todo-core -p todo-cli
-  LIBDIR="target/$PROFILE"
+  LIBDIR="target/$PROFILE_DIR"
   META_LIB="$LIBDIR/libtodo_core.dylib"
 fi
 
