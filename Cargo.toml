@@ -4,7 +4,7 @@ members = ["core", "cli", "uniffi-bindgen"]
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0"
+version = "0.1.1"
 
 [workspace.dependencies]
 anyhow = "1"
