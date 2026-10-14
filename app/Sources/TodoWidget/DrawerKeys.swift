@@ -70,7 +70,8 @@ final class DrawerKeys {
             else { controller.close() }
         case .toggleDone:
             guard let t = m.selected ?? m.highlighted else { return false }
-            let next = m.selected == nil ? m.neighbor(of: t.id) : t.id
+            // Finishing a task moves the cursor on; reopening one from its detail keeps it there.
+            let next = m.selected != nil && t.isDone ? t.id : m.neighbor(of: t.id)
             m.toggleDone(t)
             m.highlightedId = next
         case .delete:

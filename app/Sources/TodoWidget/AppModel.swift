@@ -125,6 +125,8 @@ final class AppModel {
 
     func toggleDone(_ task: TodoTask) {
         let done = task.status != "done"
+        // Finishing the task you're looking at takes you back to the list.
+        if done && selectedId == task.id { selectedId = nil }
         perform("\(done ? "Completed" : "Reopened") “\(task.title)”") {
             _ = try $0.setDone(id: task.id, done: done, actor: "You", runId: nil, reason: nil)
         }

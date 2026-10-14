@@ -72,6 +72,7 @@ final class E2EServer {
     private var source: DispatchSourceFileSystemObject?
     private var poll: Timer?
     private var dragStart: NSPoint?
+    private var resizeStart: NSPoint?
 
     init(dir: URL, services: AppServices) {
         self.dir = dir
@@ -214,6 +215,23 @@ final class E2EServer {
             s.prefs.keymap.set(b, for: a)
         case "reset_keymap":
             s.prefs.keymap = Keymap()
+        case "simulate_update":
+            s.updater.simulate(latest: cmd["latest"] as? String ?? "99.0.0", brew: cmd["brew"] as? String ?? "/usr/bin/false")
+        case "update_now":
+            s.updater.updateNow()
+        case "resize_begin":
+            let f = s.drawer.drawerFrameNow
+            resizeStart = NSPoint(x: s.prefs.edge == .right ? f.minX : f.maxX, y: f.midY)
+            s.drawer.simulatedMouse = resizeStart
+            s.drawer.resizeDrawer()
+        case "resize_move":
+            guard let start = resizeStart else { throw Failure(description: "resize_begin first") }
+            s.drawer.simulatedMouse = NSPoint(x: start.x + (cmd["dx"] as? Double ?? 0), y: start.y)
+            s.drawer.resizeDrawer()
+        case "resize_end":
+            s.drawer.endResize()
+            s.drawer.simulatedMouse = nil
+            resizeStart = nil
         case "snapshot":
             let name = cmd["name"] as? String ?? "snapshot"
             let window = cmd["window"] as? String ?? "drawer"
@@ -271,6 +289,8 @@ final class E2EServer {
             "typing": s.drawer.keys.typing,
             "keymap": Dictionary(uniqueKeysWithValues: KeyAction.allCases.map { ($0.rawValue, s.prefs.key($0).spoken) }),
             "toast": m.toast?.text ?? NSNull(),
+            "update": ["available": s.updater.updateAvailable, "updating": s.updater.updating,
+                       "error": s.updater.updateError ?? ""] as [String: Any],
             "drawerOpen": s.drawer.isOpen,
             "tabFree": s.drawer.isFree,
             "tabFrame": rect(s.drawer.tabFrame),
@@ -279,6 +299,7 @@ final class E2EServer {
             "edge": s.prefs.edge.rawValue,
             "appearance": s.prefs.appearance.rawValue,
             "pinned": s.prefs.pinned,
+            "drawerWidth": s.prefs.drawerWidth,
             "settingsOpen": s.isSettingsOpen,
             "setupOpen": s.isSetupOpen,
             "windows": s.windowNumbers,

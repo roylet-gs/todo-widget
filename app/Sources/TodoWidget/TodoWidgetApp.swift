@@ -24,7 +24,7 @@ final class AppServices {
         runner = Runner(prefs: prefs, store: model.store)
         notifier = Notifier()
         updater = Updater()
-        drawer = DrawerController(model: model, prefs: prefs)
+        drawer = DrawerController(model: model, prefs: prefs, updater: updater)
         hotkey = HotkeyMonitor(prefs: prefs, onToggle: { [weak drawer] in drawer?.toggle() })
         notifier.onOpen = { [weak self] in self?.drawer.open() }
         notifier.onUndo = { [weak self] id in self?.model.undoGroup(id) }

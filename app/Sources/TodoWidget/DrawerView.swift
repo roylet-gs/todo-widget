@@ -73,6 +73,7 @@ struct EdgeTabView: View {
 struct DrawerView: View {
     let model: AppModel
     let prefs: Preferences
+    let updater: Updater
     let controller: DrawerController
 
     var body: some View {
@@ -81,7 +82,7 @@ struct DrawerView: View {
                 TaskDetailView(model: model, prefs: prefs, controller: controller, task: task)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                TaskListView(model: model, prefs: prefs, controller: controller)
+                TaskListView(model: model, prefs: prefs, updater: updater, controller: controller)
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
@@ -95,11 +96,27 @@ struct DrawerView: View {
         }
         .animation(.snappy(duration: 0.18), value: model.showShortcuts)
         .liquidGlass(.regular, in: .rect(cornerRadius: 26))
+        .overlay(alignment: prefs.edge == .right ? .leading : .trailing) { resizeHandle }
         // Keys are handled by `DrawerKeys`; ⌘W isn't configurable, so it stays a plain shortcut.
         .background(
             Button("Close") { controller.close() }.keyboardShortcut("w", modifiers: .command)
                 .opacity(0).allowsHitTesting(false)
         )
+    }
+
+    /// An invisible strip on the drawer's inner edge; drag it to make the drawer wider or narrower.
+    private var resizeHandle: some View {
+        Color.clear
+            .frame(width: 8)
+            .padding(.vertical, 26)
+            .contentShape(Rectangle())
+            .pointerStyle(.frameResize(position: prefs.edge == .right ? .leading : .trailing))
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { _ in controller.resizeDrawer() }
+                    .onEnded { _ in controller.endResize() }
+            )
+            .accessibilityHidden(true)
     }
 }
 
@@ -154,6 +171,7 @@ struct ShortcutsSheet: View {
 struct TaskListView: View {
     let model: AppModel
     let prefs: Preferences
+    let updater: Updater
     let controller: DrawerController
 
     @State private var newTitle = ""
@@ -167,7 +185,7 @@ struct TaskListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if let updater = AppServices.shared?.updater, updater.updateAvailable { updateBanner(updater) }
+            if updater.updateAvailable { updateBanner }
             if !model.recentRuns.isEmpty { runStrip }
             quickAdd
             ScrollViewReader { proxy in
@@ -290,10 +308,10 @@ struct TaskListView: View {
 
     // MARK: update
 
-    private func updateBanner(_ updater: Updater) -> some View {
+    private var updateBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.down.circle").foregroundStyle(.tint)
-            Text("Todo Widget \(updater.latest ?? "") is available").font(.caption.weight(.semibold))
+            Text(updater.updateError ?? "Todo Widget \(updater.latest ?? "") is available").font(.caption.weight(.semibold))
             Spacer(minLength: 4)
             Button(updater.updating ? "Updating…" : (updater.method == .homebrew ? "Update" : "Get it")) {
                 if updater.method == .homebrew { updater.updateNow() } else { updater.openReleasePage() }
