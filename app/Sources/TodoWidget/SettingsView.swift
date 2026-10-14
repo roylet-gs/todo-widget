@@ -288,6 +288,11 @@ struct SchedulePane: View {
             .id(model.revision)
 
         if !recentRuns.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Recent runs").font(.headline)
+                Text("The last run from each agent, by the name it gave. Check here if a schedule stops firing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Card {
                 ForEach(Array(recentRuns.enumerated()), id: \.element.id) { i, a in
                     if i > 0 { Divider() }
