@@ -21,7 +21,7 @@ struct SettingsView: View {
     let model: AppModel
     let prefs: Preferences
     let runner: Runner
-    @State private var tab: SettingsTab = .general
+    @State var tab: SettingsTab = .general
 
     var body: some View {
         NavigationSplitView {
@@ -29,6 +29,7 @@ struct SettingsView: View {
                 Label(t.title, systemImage: t.icon).tag(t)
             }
             .navigationSplitViewColumnWidth(190)
+            .e2eOpaque(.controlBackgroundColor)
         } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -45,8 +46,10 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(tab.title)
+            .e2eOpaque()
         }
         .frame(minWidth: 820, minHeight: 600)
+        .e2eOpaque()
     }
 }
 
@@ -68,7 +71,7 @@ struct Card<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .padding(.vertical, 4)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .liquidGlass(.regular, in: .rect(cornerRadius: 20))
     }
 }
 
@@ -151,7 +154,7 @@ struct GeneralPane: View {
             CardRow(title: "Open at login", detail: loginMessage ?? "Start Todo Widget automatically when you log in to your Mac.") {
                 HStack(spacing: 10) {
                     if LoginItem.needsApproval {
-                        Button("Open Login Items") { LoginItem.openSystemSettings() }.buttonStyle(.glass).controlSize(.small)
+                        Button("Open Login Items") { LoginItem.openSystemSettings() }.glassButton().controlSize(.small)
                     }
                     Toggle("", isOn: $loginItem).toggleStyle(.switch).labelsHidden()
                         .onChange(of: loginItem) { _, on in
@@ -169,7 +172,7 @@ struct GeneralPane: View {
                 statusRow("Database", model.store.path())
                 HStack {
                     Button("Install `todo` command in ~/.local/bin") { cliMessage = Integrations.installCLI().message }
-                        .buttonStyle(.glass)
+                        .glassButton()
                     if let cliMessage { Text(cliMessage).font(.caption).foregroundStyle(.secondary) }
                 }
                 .padding(.top, 6)
@@ -180,7 +183,7 @@ struct GeneralPane: View {
         Card {
             CardRow(title: "Reset Todo Widget", detail: "Clears settings, sources and prompts, then runs setup again. You choose whether to keep your tasks.") {
                 Button("Reset…", role: .destructive) { confirmReset = true }
-                    .buttonStyle(.glass)
+                    .glassButton()
             }
         }
         .confirmationDialog("Reset Todo Widget?", isPresented: $confirmReset) {
@@ -216,7 +219,7 @@ struct SourcesPane: View {
                     sources.append(s)
                 }
             }
-            .buttonStyle(.glassProminent)
+            .glassButton(prominent: true)
         }
         Card {
             if sources.isEmpty {
@@ -275,7 +278,7 @@ struct PromptPane: View {
                 try? model.store.setPrompt(body: draft)
                 load()
             }
-            .buttonStyle(.glassProminent)
+            .glassButton(prominent: true)
             .disabled(draft == saved)
         }
         HStack(alignment: .top, spacing: 16) {
@@ -294,7 +297,7 @@ struct PromptPane: View {
                     }
                 }
                 Button("Preview rendered prompt") { preview = try? model.store.renderPrompt(agent: "Claude Code") }
-                    .buttonStyle(.glass)
+                    .glassButton()
                 Button("Reset to default") { draft = model.store.defaultPrompt() }
                     .buttonStyle(.plain).foregroundStyle(.secondary).font(.caption)
             }
@@ -369,8 +372,8 @@ struct SchedulesPane: View {
                     Text("Runs are unattended, so only these tools are allowed. Keep source tools read-only.").font(.caption).foregroundStyle(.secondary)
                     TextField("", text: $prefs.runnerAllowedTools, axis: .vertical).font(.caption.monospaced()).textFieldStyle(.roundedBorder).lineLimit(2...5)
                     HStack {
-                        Button(runner.isRunning ? "Running…" : "Run now") { runner.runNow() }.buttonStyle(.glassProminent).disabled(runner.isRunning)
-                        Button("Copy command") { Integrations.copy(runner.commandPreview) }.buttonStyle(.glass)
+                        Button(runner.isRunning ? "Running…" : "Run now") { runner.runNow() }.glassButton(prominent: true).disabled(runner.isRunning)
+                        Button("Copy command") { Integrations.copy(runner.commandPreview) }.glassButton()
                     }
                     .padding(.top, 4)
                 }
@@ -408,7 +411,7 @@ struct SchedulesPane: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Schedule setup prompt").font(.headline)
-                    Text("Paste this into Claude Desktop or Hermes when you create a scheduled task. It's generated from your settings, and you can edit it here.")
+                    Text("Paste this into Claude Desktop or Hermes when you create a scheduled task. You can edit it here; {{schedule}} and {{agent}} are filled in from your settings when you copy it.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -430,8 +433,8 @@ struct SchedulesPane: View {
                     copySetup(agent: "Claude Desktop")
                     Integrations.openClaudeDesktop()
                 }
-                .buttonStyle(.glassProminent)
-                Button("Copy for Hermes") { copySetup(agent: "Hermes") }.buttonStyle(.glass)
+                .glassButton(prominent: true)
+                Button("Copy for Hermes") { copySetup(agent: "Hermes") }.glassButton()
                 if let copied { Text(copied).font(.caption).foregroundStyle(.secondary) }
             }
         }
@@ -491,7 +494,7 @@ struct AgentsPane: View {
             HStack {
                 Text("For any other MCP client, paste this config:").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Copy") { Integrations.copy(Integrations.mcpSnippet(agent: "Agent")) }.buttonStyle(.glass).controlSize(.small)
+                Button("Copy") { Integrations.copy(Integrations.mcpSnippet(agent: "Agent")) }.glassButton().controlSize(.small)
             }
             Text(Integrations.mcpSnippet(agent: "Agent"))
                 .font(.system(size: 11.5, design: .monospaced))
@@ -529,11 +532,11 @@ struct AgentsPane: View {
             }
             Text(how).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Button(action, action: perform).buttonStyle(.glass)
+            Button(action, action: perform).glassButton()
         }
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .liquidGlass(.regular, in: .rect(cornerRadius: 20))
     }
 }
 
@@ -558,7 +561,7 @@ struct HistoryPane: View {
                     if g.undone {
                         Text("Undone").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Button(g.kind == "system" ? "Restore" : "Undo") { model.undoGroup(g.id) }.buttonStyle(.glass).controlSize(.small)
+                        Button(g.kind == "system" ? "Restore" : "Undo") { model.undoGroup(g.id) }.glassButton().controlSize(.small)
                     }
                 }
                 ForEach(g.events.prefix(6), id: \.id) { e in
@@ -572,7 +575,7 @@ struct HistoryPane: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .liquidGlass(.regular, in: .rect(cornerRadius: 20))
         }
         .onAppear(perform: load)
         .onChange(of: model.revision) { _, _ in load() }
@@ -604,13 +607,13 @@ struct UpdatesCard: View {
             CardRow(title: "Version \(updater.current)", detail: detail) {
                 HStack(spacing: 8) {
                     Button(updater.checking ? "Checking…" : "Check now") { updater.check(force: true) }
-                        .buttonStyle(.glass).disabled(updater.checking)
+                        .glassButton().disabled(updater.checking)
                     if updater.updateAvailable {
                         if updater.method == .homebrew {
                             Button(updater.updating ? "Updating…" : "Update to \(updater.latest ?? "")") { updater.updateNow() }
-                                .buttonStyle(.glassProminent).disabled(updater.updating)
+                                .glassButton(prominent: true).disabled(updater.updating)
                         } else {
-                            Button("Get \(updater.latest ?? "")") { updater.openReleasePage() }.buttonStyle(.glassProminent)
+                            Button("Get \(updater.latest ?? "")") { updater.openReleasePage() }.glassButton(prominent: true)
                         }
                     }
                 }

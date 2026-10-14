@@ -40,7 +40,7 @@ final class Updater {
     private(set) var checking = false
     private(set) var updating = false
     private var timer: Timer?
-    private let d = UserDefaults.standard
+    private let d = AppDefaults
 
     var updateAvailable: Bool {
         guard let latest else { return false }
@@ -59,6 +59,7 @@ final class Updater {
 
     /// Fetch the latest release unless the cached answer is still fresh (or `force`).
     func check(force: Bool = false) {
+        if E2E.enabled { return }
         if !force, let lastChecked, Date().timeIntervalSince(lastChecked) < Self.interval { return }
         guard !checking else { return }
         checking = true

@@ -4,7 +4,7 @@ import UserNotifications
 /// One notification per finished agent run, with Open and Undo actions.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
-    private let defaults = UserDefaults.standard
+    private let defaults = AppDefaults
     private var notified: Set<String>
     private let enabled: Bool
     var onOpen: (() -> Void)?
@@ -13,7 +13,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     override init() {
         notified = Set(defaults.stringArray(forKey: "notifiedRuns") ?? [])
         // UNUserNotificationCenter requires a bundled app (not `swift run`).
-        enabled = Bundle.main.bundleIdentifier != nil
+        enabled = Bundle.main.bundleIdentifier != nil && !E2E.enabled
         super.init()
         guard enabled else { return }
         let center = UNUserNotificationCenter.current()

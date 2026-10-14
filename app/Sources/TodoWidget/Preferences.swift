@@ -67,7 +67,7 @@ enum ClearDone: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class Preferences {
-    private let d = UserDefaults.standard
+    private let d = AppDefaults
 
     var appearance: Appearance { didSet { d.set(appearance.rawValue, forKey: "appearance"); apply() } }
     var windowLevel: WindowLevelPref { didSet { d.set(windowLevel.rawValue, forKey: "windowLevel") } }

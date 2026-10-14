@@ -33,6 +33,9 @@ final class DrawerController {
     private(set) var isDraggingTab = false
     private var dragOffset: NSPoint?
     private var clickMonitors: [Any] = []
+    /// E2E: a synthetic pointer location used instead of the real mouse while dragging.
+    var simulatedMouse: NSPoint?
+    private var currentMouse: NSPoint { simulatedMouse ?? NSEvent.mouseLocation }
 
     static let tabSize = NSSize(width: 38, height: 84)
     static let drawerWidth: CGFloat = 400
@@ -123,7 +126,7 @@ final class DrawerController {
 
     /// Follow the pointer while dragging (screen coordinates, so the moving window doesn't skew it).
     func dragTab() {
-        let mouse = NSEvent.mouseLocation
+        let mouse = currentMouse
         if dragOffset == nil {
             let f = tabPanel.frame
             dragOffset = NSPoint(x: mouse.x - f.minX, y: mouse.y - f.minY)
@@ -168,7 +171,7 @@ final class DrawerController {
                     self.lag = .zero
                     self.catchUpTimer?.invalidate()
                 }
-                let m = NSEvent.mouseLocation
+                let m = self.currentMouse
                 self.moveTab(dx: m.x - self.dragStartMouse.x + self.lag.x, dy: m.y - self.dragStartMouse.y + self.lag.y)
             }
         }
@@ -261,9 +264,9 @@ final class DrawerController {
         removeClickAway()
         let handler: (NSEvent) -> Void = { [weak self] event in
             MainActor.assumeIsolated {
-                guard let self, self.isOpen, !self.prefs.pinned else { return }
+                guard let self else { return }
                 if event.window === self.drawerPanel || event.window === self.tabPanel { return }
-                self.close()
+                self.handleOutsideClick()
             }
         }
         if let g = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: handler) {
@@ -276,6 +279,21 @@ final class DrawerController {
             clickMonitors.append(l)
         }
     }
+
+    /// A click landed outside the drawer: collapse it unless pinned.
+    func handleOutsideClick() {
+        guard isOpen, !prefs.pinned else { return }
+        close()
+    }
+
+    // E2E inspection
+    var tabFrame: NSRect { tabPanel.frame }
+    var drawerFrameNow: NSRect { drawerPanel.frame }
+    var screenVisibleFrame: NSRect { screen.visibleFrame }
+    var windowNumbers: [String: Int] {
+        ["tab": tabPanel.windowNumber, "drawer": drawerPanel.isVisible ? drawerPanel.windowNumber : 0]
+    }
+    func panel(_ name: String) -> NSPanel? { name == "tab" ? tabPanel : name == "drawer" ? drawerPanel : nil }
 
     private func removeClickAway() {
         clickMonitors.forEach(NSEvent.removeMonitor)

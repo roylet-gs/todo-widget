@@ -32,6 +32,7 @@ struct TaskDetailView: View {
                     if let s = task.summary { section("Summary") { Text(s).textSelection(.enabled) } }
                     if let r = task.rationale {
                         section("Why it's ranked here") { Text(r) }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)
                             .background(.fill.quaternary, in: .rect(cornerRadius: 16))
                     }
@@ -59,13 +60,13 @@ struct TaskDetailView: View {
                     Button { model.toggleDone(task) } label: {
                         Text(task.isDone ? "Reopen" : "Mark done").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassButton(prominent: true)
                     Button(editing ? "Save" : "Edit") {
                         if editing { save() } else { startEdit() }
                     }
-                    .buttonStyle(.glass)
+                    .glassButton()
                     Button(role: .destructive) { model.delete(task) } label: { Image(systemName: "trash") }
-                        .buttonStyle(.glass)
+                        .glassButton()
                         .accessibilityLabel("Delete")
                 }
                 .controlSize(.large)

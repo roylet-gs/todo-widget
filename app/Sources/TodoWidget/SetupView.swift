@@ -27,7 +27,7 @@ struct SetupView: View {
         var on: Bool
     }
 
-    @State private var step: Step = .welcome
+    @State var step: Step = .welcome
     @State private var presets: [Preset] = [
         Preset(id: "Slack", kind: "Messages", instructions: "DMs, mentions, and threads where someone asks me for something.", on: true),
         Preset(id: "Gmail", kind: "Email", instructions: "Unread email from people (not newsletters) that needs a reply or action.", on: true),
@@ -53,6 +53,7 @@ struct SetupView: View {
             footer
         }
         .frame(width: 680, height: 580)
+        .e2eOpaque()
     }
 
     private var progress: some View {
@@ -140,7 +141,7 @@ struct SetupView: View {
                     }
                 }
                 .padding(14)
-                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                .liquidGlass(.regular, in: .rect(cornerRadius: 16))
             }
             Text("You can add more sources later in Settings › Sources.").font(.caption).foregroundStyle(.secondary)
         }
@@ -197,8 +198,8 @@ struct SetupView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.fill.quaternary, in: .rect(cornerRadius: 14))
                 HStack {
-                    Button("Copy for Claude Desktop") { copySetup("Claude Desktop") }.buttonStyle(.glass)
-                    Button("Copy for Hermes") { copySetup("Hermes") }.buttonStyle(.glass)
+                    Button("Copy for Claude Desktop") { copySetup("Claude Desktop") }.glassButton()
+                    Button("Copy for Hermes") { copySetup("Hermes") }.glassButton()
                     if let copied { Text(copied).font(.caption).foregroundStyle(.secondary) }
                 }
             }
@@ -232,7 +233,7 @@ struct SetupView: View {
     private var footer: some View {
         HStack {
             if step != .welcome && step != .done {
-                Button("Back") { go(-1) }.buttonStyle(.glass)
+                Button("Back") { go(-1) }.glassButton()
             }
             Spacer()
             if step != .done {
@@ -242,7 +243,7 @@ struct SetupView: View {
                 if step == .sources { saveSources() }
                 if step == .done { finish() } else { go(1) }
             }
-            .buttonStyle(.glassProminent)
+            .glassButton(prominent: true)
             .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 36).padding(.vertical, 20)
@@ -298,9 +299,9 @@ struct SetupView: View {
                 if let status { Text(status).font(.caption).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer()
-            Button(action, action: perform).buttonStyle(.glass)
+            Button(action, action: perform).glassButton()
         }
         .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .liquidGlass(.regular, in: .rect(cornerRadius: 16))
     }
 }

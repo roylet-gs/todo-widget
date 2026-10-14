@@ -20,17 +20,18 @@ final class Runner {
     static let agentName = "Claude Code"
 
     var lastRun: Date? {
-        get { UserDefaults.standard.object(forKey: "runnerLastRun") as? Date }
-        set { UserDefaults.standard.set(newValue, forKey: "runnerLastRun") }
+        get { AppDefaults.object(forKey: "runnerLastRun") as? Date }
+        set { AppDefaults.set(newValue, forKey: "runnerLastRun") }
     }
 
     init(prefs: Preferences, store: TodoStore) {
         self.prefs = prefs
         self.store = store
-        if let data = UserDefaults.standard.data(forKey: "runnerLog"), let l = try? JSONDecoder().decode([RunLogEntry].self, from: data) {
+        if let data = AppDefaults.data(forKey: "runnerLog"), let l = try? JSONDecoder().decode([RunLogEntry].self, from: data) {
             log = l
         }
         // Checking once a minute also catches up after sleep: the first tick after wake runs if due.
+        if E2E.enabled { return }
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -115,6 +116,6 @@ final class Runner {
     private func append(_ e: RunLogEntry) {
         log.insert(e, at: 0)
         log = Array(log.prefix(20))
-        if let data = try? JSONEncoder().encode(log) { UserDefaults.standard.set(data, forKey: "runnerLog") }
+        if let data = try? JSONEncoder().encode(log) { AppDefaults.set(data, forKey: "runnerLog") }
     }
 }

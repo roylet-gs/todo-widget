@@ -21,4 +21,13 @@ jobs:
           cargo build -p todo-cli
           TODO_NO_NOTIFY=1 TODO_DB="$RUNNER_TEMP/smoke.db" python3 scripts/mcp_smoke.py target/debug/todo
       - name: Build the app
-        run: PROFILE=dev ./scripts/build-core.sh && (cd app && swift build)
+        run: ./scripts/bundle-app.sh
+      - name: E2E
+        run: python3 e2e/run.py
+      - name: Upload E2E screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/tmp/*.png
+          if-no-files-found: ignore
