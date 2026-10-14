@@ -1,0 +1,446 @@
+import SwiftUI
+import TodoCore
+
+enum Palette {
+    static func priority(_ p: UInt8) -> Color {
+        switch p {
+        case 1: .orange
+        case 2: .accentColor
+        default: .secondary
+        }
+    }
+}
+
+// MARK: - Collapsed tab
+
+struct EdgeTabView: View {
+    let model: AppModel
+    let prefs: Preferences
+    let controller: DrawerController
+    @State private var hovering = false
+
+    var body: some View {
+        let right = prefs.edge == .right
+        // Flat against the edge while attached; fully rounded once pulled free.
+        let r: CGFloat = 16
+        let flat: CGFloat = controller.isFree ? r : 0
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: right ? r : flat, bottomLeadingRadius: right ? r : flat,
+            bottomTrailingRadius: right ? flat : r, topTrailingRadius: right ? flat : r,
+            style: .continuous)
+        ZStack {
+            VStack(spacing: 7) {
+                Text("\(model.unreadCount)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(model.unreadCount > 0 ? Color.accentColor : Color.secondary))
+                VStack(spacing: 4) {
+                    ForEach(model.open.prefix(3), id: \.id) { t in
+                        Capsule().fill(Palette.priority(t.priority))
+                            .frame(width: 14, height: 3)
+                            .opacity(t.unread ? 1 : 0.45)
+                    }
+                }
+                // Points the way the drawer opens; brightens on hover to signal it's clickable.
+                Image(systemName: right ? "chevron.compact.left" : "chevron.compact.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(hovering ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                    .offset(x: hovering ? (right ? -2 : 2) : 0)
+                    .animation(.snappy(duration: 0.18), value: hovering)
+            }
+            .frame(width: DrawerController.tabSize.width, height: DrawerController.tabSize.height)
+            .contentShape(Rectangle())
+            .pointerStyle(.link)
+            .onHover { hovering = $0 && !controller.isDraggingTab }
+            .onTapGesture { controller.open() }
+            .gesture(
+                DragGesture(minimumDistance: 3, coordinateSpace: .global)
+                    .onChanged { _ in controller.dragTab() }
+                    .onEnded { _ in controller.endTabDrag() }
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .glassEffect(.regular.interactive(), in: shape)
+        .help("Click to open · drag to move")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Open todo drawer, \(model.unreadCount) unread")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: - Drawer
+
+struct DrawerView: View {
+    let model: AppModel
+    let prefs: Preferences
+    let controller: DrawerController
+
+    var body: some View {
+        ZStack {
+            if let task = model.selected {
+                TaskDetailView(model: model, controller: controller, task: task)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                TaskListView(model: model, prefs: prefs, controller: controller)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.22), value: model.selectedId)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .glassEffect(.regular, in: .rect(cornerRadius: 26))
+        .onExitCommand {
+            if model.selectedId != nil { model.select(nil) } else { controller.close() }
+        }
+        .background(shortcuts)
+    }
+
+    /// Hidden buttons that own the drawer's keyboard shortcuts.
+    private var shortcuts: some View {
+        Group {
+            Button("Undo") { model.undo() }.keyboardShortcut("z", modifiers: .command)
+            Button("Redo") { model.redo() }.keyboardShortcut("z", modifiers: [.command, .shift])
+            Button("Close") { controller.close() }.keyboardShortcut("w", modifiers: .command)
+        }
+        .opacity(0)
+        .allowsHitTesting(false)
+    }
+}
+
+struct TaskListView: View {
+    let model: AppModel
+    let prefs: Preferences
+    let controller: DrawerController
+
+    @State private var newTitle = ""
+    @State private var runsExpanded = false
+    @State private var doneExpanded = false
+    @State private var dragging: String?
+    @State private var dropTarget: String?
+    @State private var hovered: String?
+    @FocusState private var addFocused: Bool
+
+    private let todayCount = 5
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            if !model.recentRuns.isEmpty { runStrip }
+            quickAdd
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(model.open.prefix(todayCount).enumerated()), id: \.element.id) { i, t in row(t, index: i) }
+                    if model.open.count > todayCount {
+                        sectionDivider("Later")
+                        ForEach(Array(model.open.dropFirst(todayCount).enumerated()), id: \.element.id) { i, t in
+                            row(t, index: i + todayCount).opacity(0.78)
+                        }
+                    }
+                    if model.open.isEmpty {
+                        Text("Nothing to do. Agents will add tasks here.")
+                            .font(.callout).foregroundStyle(.secondary).padding(.top, 40)
+                    }
+                    if !model.done.isEmpty { doneSection }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 10)
+            }
+            .scrollIndicators(.never)
+            if let toast = model.toast { toastView(toast) }
+        }
+        .background(nudgeShortcuts)
+    }
+
+    // MARK: header
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Today").font(.system(size: 20, weight: .bold))
+                Text("\(model.open.count) open · \(model.unreadCount) unread")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    if prefs.runnerEnabled, let runner = AppServices.shared?.runner {
+                        Button {
+                            runner.runNow()
+                            model.showToast("Run started: Claude Code (built-in runner)", undoable: false)
+                        } label: {
+                            Label(runner.isRunning ? "Running…" : "Run now", systemImage: "play.fill")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(runner.isRunning)
+                    }
+                    Button { prefs.pinned.toggle() } label: {
+                        Image(systemName: prefs.pinned ? "pin.fill" : "pin")
+                    }
+                    .buttonStyle(.glass)
+                    .help(prefs.pinned ? "Unpin: close when the pointer leaves" : "Pin the drawer open")
+                    .accessibilityLabel(prefs.pinned ? "Unpin drawer" : "Pin drawer open")
+                    Button { AppServices.shared?.showSettings() } label: { Image(systemName: "slider.horizontal.3") }
+                        .buttonStyle(.glass)
+                        .accessibilityLabel("Settings")
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 10)
+    }
+
+    // MARK: what changed
+
+    private var runStrip: some View {
+        let runs = model.recentRuns
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for r in runs {
+            if counts[r.actor] == nil { order.append(r.actor) }
+            counts[r.actor, default: 0] += 1
+        }
+        let who = order.map { counts[$0]! > 1 ? "\($0) ×\(counts[$0]!)" : $0 }.joined(separator: ", ")
+        let total = runs.reduce(into: RunStats(added: 0, updated: 0, done: 0, reordered: 0, deleted: 0)) { acc, r in
+            acc.added += r.stats.added; acc.done += r.stats.done; acc.reordered += r.stats.reordered
+            acc.updated += r.stats.updated; acc.deleted += r.stats.deleted
+        }
+        let totalText = ChangeGroup(id: "", kind: "run", actor: "", label: "", createdAt: 0, finishedAt: nil, summary: nil, stats: total, undone: false, events: []).statsText
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Button { withAnimation(.snappy) { runsExpanded.toggle() } } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles").font(.caption)
+                            Text("Since \(clockTime(runs.first?.createdAt ?? 0)) · \(who)").font(.caption.weight(.semibold))
+                            Image(systemName: runsExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
+                        }
+                        Text(totalText).font(.caption)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(runsExpanded ? "Collapse runs" : "Show each run")
+                Button("Undo all") { model.undoRecentRuns() }
+                    .buttonStyle(.glass).controlSize(.small)
+                Button { model.dismissRecentRuns() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel("Mark changes seen")
+            }
+            if runsExpanded {
+                VStack(spacing: 0) {
+                    ForEach(runs, id: \.id) { r in
+                        Divider().opacity(0.5)
+                        HStack(spacing: 8) {
+                            Text(clockTime(r.createdAt)).font(.caption.monospacedDigit()).frame(width: 40, alignment: .leading)
+                            Text(r.actor).font(.caption.weight(.semibold)).lineLimit(1)
+                            Text(r.statsText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Button("Undo") { model.undoGroup(r.id) }.buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                        }
+                        .padding(.vertical, 5)
+                    }
+                }
+                .padding(.top, 6)
+            }
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .glassEffect(.regular.tint(.accentColor.opacity(0.18)), in: .rect(cornerRadius: 16))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: quick add
+
+    private var quickAdd: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus").foregroundStyle(.secondary)
+            TextField("Add task…", text: $newTitle)
+                .textFieldStyle(.plain)
+                .focused($addFocused)
+                .onSubmit {
+                    model.add(newTitle)
+                    newTitle = ""
+                }
+                .onChange(of: addFocused) { _, f in if f { controller.engage() } }
+            Text("⌘N").font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(.fill.tertiary, in: .rect(cornerRadius: 14))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+        .background(
+            Button("New task") { controller.engage(); addFocused = true }
+                .keyboardShortcut("n", modifiers: .command).opacity(0).allowsHitTesting(false)
+        )
+    }
+
+    // MARK: rows
+
+    private func row(_ t: TodoTask, index: Int) -> some View {
+        let fromIndex = dragging.flatMap { id in model.open.firstIndex { $0.id == id } }
+        let movingDown = (fromIndex ?? 0) < index
+        let isTarget = dropTarget == t.id && dragging != t.id
+        return TaskRow(task: t, chip: t.chip(lastSeen: model.lastSeenAt), onToggle: { model.toggleDone(t) }, onOpen: {
+            controller.engage()
+            model.select(t)
+        })
+        .opacity(dragging == t.id ? 0.35 : 1)
+        .overlay(alignment: movingDown ? .bottom : .top) {
+            if isTarget { Capsule().fill(Color.accentColor).frame(height: 3).padding(.horizontal, 6) }
+        }
+        .onHover { hovered = $0 ? t.id : (hovered == t.id ? nil : hovered) }
+        .onDrag {
+            dragging = t.id
+            return NSItemProvider(object: t.id as NSString)
+        }
+        .dropDestination(for: String.self) { items, _ in
+            defer { dragging = nil; dropTarget = nil }
+            guard let id = items.first, id != t.id else { return false }
+            model.move(id, to: index)
+            return true
+        } isTargeted: { inside in
+            if inside { dropTarget = t.id } else if dropTarget == t.id { dropTarget = nil }
+        }
+        .contextMenu {
+            Button("Open") { model.select(t) }
+            Button("Mark done") { model.toggleDone(t) }
+            Button("Move up") { model.nudge(t.id, by: -1) }.disabled(index == 0)
+            Button("Move down") { model.nudge(t.id, by: 1) }
+            Divider()
+            Button("Delete", role: .destructive) { model.delete(t) }
+        }
+    }
+
+    /// ⌥⌘↑ / ⌥⌘↓ move the hovered task.
+    private var nudgeShortcuts: some View {
+        Group {
+            Button("Move up") { if let h = hovered { model.nudge(h, by: -1) } }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+            Button("Move down") { if let h = hovered { model.nudge(h, by: 1) } }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+        }
+        .opacity(0).allowsHitTesting(false)
+    }
+
+    private func sectionDivider(_ title: String) -> some View {
+        HStack(spacing: 8) {
+            Rectangle().fill(.separator).frame(height: 1)
+            Text(title.uppercased()).font(.system(size: 10, weight: .semibold)).kerning(0.8).foregroundStyle(.tertiary)
+            Rectangle().fill(.separator).frame(height: 1)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+    }
+
+    private var doneSection: some View {
+        VStack(spacing: 2) {
+            Button { withAnimation(.snappy) { doneExpanded.toggle() } } label: {
+                HStack {
+                    Text("Done today · \(model.done.count)").font(.caption.weight(.semibold))
+                    Image(systemName: doneExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
+                    Spacer()
+                    Text(prefs.clearDone == .never ? "" : prefs.clearDone == .midnight ? "Clears at midnight" : "Clears after 24 h")
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 10)
+            if doneExpanded {
+                ForEach(model.done, id: \.id) { t in
+                    TaskRow(task: t, chip: nil, onToggle: { model.toggleDone(t) }, onOpen: { model.select(t) })
+                }
+            }
+        }
+    }
+
+    private func toastView(_ toast: Toast) -> some View {
+        HStack(spacing: 10) {
+            Text(toast.text).font(.caption).lineLimit(2)
+            Spacer(minLength: 4)
+            if toast.undoable {
+                Button("Undo ⌘Z") { model.undo() }.buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(.tint)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .padding(.horizontal, 12).padding(.bottom, 12)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .id(toast.id)
+    }
+}
+
+struct TaskRow: View {
+    let task: TodoTask
+    let chip: String?
+    let onToggle: () -> Void
+    let onOpen: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .opacity(hover && !task.isDone ? 1 : 0)
+                .accessibilityHidden(true)
+            Button(action: onToggle) {
+                ZStack {
+                    Circle().strokeBorder(Color.secondary.opacity(task.isDone ? 0.35 : 0.6), lineWidth: 1.5)
+                    if task.isDone {
+                        // Muted so completed rows recede instead of drawing the eye.
+                        Circle().fill(Color.green.opacity(0.32))
+                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.primary.opacity(0.6))
+                    }
+                }
+                .frame(width: 20, height: 20)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(task.isDone ? "Mark not done" : "Mark done")
+            if !task.isDone {
+                Capsule().fill(Palette.priority(task.priority)).frame(width: 4, height: 26).accessibilityHidden(true)
+            }
+            Button(action: onOpen) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(task.title)
+                        .font(.system(size: 13, weight: task.unread && !task.isDone ? .semibold : .regular))
+                        .strikethrough(task.isDone)
+                        .foregroundStyle(task.isDone ? .secondary : .primary)
+                        .lineLimit(1)
+                    if !task.meta.isEmpty && !task.isDone {
+                        Text(task.meta).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if let chip {
+                Text(chip)
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(chip == "new" ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.15), in: Capsule())
+                    .foregroundStyle(chip == "new" ? Color.accentColor : .secondary)
+            }
+            if task.unread && !task.isDone {
+                Circle().fill(Color.accentColor).frame(width: 8, height: 8).accessibilityLabel("Unread")
+            }
+        }
+        .padding(.leading, 4).padding(.trailing, 12).padding(.vertical, 8)
+        .frame(minHeight: 46)
+        .background {
+            if task.unread && !task.isDone {
+                RoundedRectangle(cornerRadius: 14).fill(.fill.secondary)
+            } else if hover {
+                RoundedRectangle(cornerRadius: 14).fill(.fill.quaternary)
+            }
+        }
+        .onHover { hover = $0 }
+    }
+}
