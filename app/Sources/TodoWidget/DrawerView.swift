@@ -88,10 +88,26 @@ struct DrawerView: View {
         .animation(.snappy(duration: 0.22), value: model.selectedId)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .liquidGlass(.regular, in: .rect(cornerRadius: 26))
+        .overlay(alignment: prefs.edge == .right ? .leading : .trailing) { resizeHandle }
         .onExitCommand {
             if model.selectedId != nil { model.select(nil) } else { controller.close() }
         }
         .background(shortcuts)
+    }
+
+    /// An invisible strip on the drawer's inner edge; drag it to make the drawer wider or narrower.
+    private var resizeHandle: some View {
+        Color.clear
+            .frame(width: 8)
+            .padding(.vertical, 26)
+            .contentShape(Rectangle())
+            .pointerStyle(.frameResize(position: prefs.edge == .right ? .leading : .trailing))
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { _ in controller.resizeDrawer() }
+                    .onEnded { _ in controller.endResize() }
+            )
+            .accessibilityHidden(true)
     }
 
     /// Hidden buttons that own the drawer's keyboard shortcuts.

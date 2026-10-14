@@ -244,13 +244,21 @@ def drawer_shows_seeded_tasks(app: App):
 
 @spec
 def task_detail_done_and_undo(app: App):
+    # Pinned so a stray click elsewhere on the Mac can't close the drawer (which also clears the selection).
+    app.cmd("set_pref", key="pinned", value=True)
     app.cmd("open_drawer")
     s = app.cmd("select", title="Reply to Sam")
     expect(s["selected"] == "Reply to Sam about the Q4 export format", f"selected: {s['selected']}")
     s = app.wait_state(lambda s: not next(t for t in s["open"] if t["title"].startswith("Reply to Sam"))["unread"],
                        "opening a task should mark it read")
     app.snapshot("drawer", "detail")
-    app.cmd("back")
+    s = app.state()
+    expect(s["drawerOpen"] and s["selected"] == "Reply to Sam about the Q4 export format",
+           f"detail should still be showing before marking done: open={s['drawerOpen']} selected={s['selected']}")
+    s = app.cmd("toggle_done", title="Reply to Sam")
+    expect(s["selected"] is None, f"marking done from the detail should go back to the list: {s['selected']}")
+    app.cmd("undo")
+    app.wait_state(lambda s: "Reply to Sam about the Q4 export format" in titles(s["open"]), "undo did not reopen")
     app.cmd("toggle_done", title="Review PR #412")
     s = app.wait_state(lambda s: "Review PR #412: connections retry logic" in titles(s["done"]), "task not marked done")
     expect(s["toast"] and s["toast"].startswith("Completed"), f"toast: {s['toast']}")
@@ -315,6 +323,29 @@ def sticky_tab_drag_snaps_to_edges(app: App):
     s = app.state()
     expect(abs(s["drawerFrame"]["x"] - (screen["x"] + 10)) < 2, f"drawer should open from the left: {s['drawerFrame']}")
     app.snapshot("drawer", "left-drawer")
+
+
+@spec
+def drawer_resizes_from_inner_edge(app: App):
+    app.cmd("open_drawer")
+    app.settle()
+    s = app.state()
+    screen, f0 = s["screen"], s["drawerFrame"]
+    right = screen["x"] + screen["w"]
+    expect(abs(f0["w"] - 400) < 1, f"default width: {f0}")
+    # Docked right, the inner edge is the left one: dragging it left widens the drawer.
+    app.cmd("resize_begin")
+    app.cmd("resize_move", dx=-200)
+    s = app.cmd("resize_end")
+    f = s["drawerFrame"]
+    expect(abs(f["w"] - 600) < 1 and abs(s["drawerWidth"] - 600) < 1, f"drawer should be 600 wide: {f}")
+    expect(abs(f["x"] + f["w"] - (right - 10)) < 2, f"drawer should stay against the right edge: {f}")
+    app.snapshot("drawer", "wide")
+    # It can't be squeezed below the minimum.
+    app.cmd("resize_begin")
+    app.cmd("resize_move", dx=1000)
+    s = app.cmd("resize_end")
+    expect(abs(s["drawerFrame"]["w"] - 340) < 1, f"drawer should stop at its minimum: {s['drawerFrame']}")
 
 
 @spec

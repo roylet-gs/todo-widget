@@ -38,14 +38,16 @@ final class DrawerController {
     private var currentMouse: NSPoint { simulatedMouse ?? NSEvent.mouseLocation }
 
     static let tabSize = NSSize(width: 38, height: 84)
-    static let drawerWidth: CGFloat = 400
+    static let defaultDrawerWidth: CGFloat = 400
+    static let minDrawerWidth: CGFloat = 340
+    private static let maxDrawerWidth: CGFloat = 900
     private static let edgeInset: CGFloat = 10
 
     init(model: AppModel, prefs: Preferences) {
         self.model = model
         self.prefs = prefs
         tabPanel = FloatingPanel(contentRect: NSRect(origin: .zero, size: Self.tabSize))
-        drawerPanel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: Self.drawerWidth, height: 600))
+        drawerPanel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: Self.defaultDrawerWidth, height: 600))
         tabPanel.contentView = NSHostingView(rootView: EdgeTabView(model: model, prefs: prefs, controller: self))
         drawerPanel.contentView = NSHostingView(rootView: DrawerView(model: model, prefs: prefs, controller: self))
         applyPrefs()
@@ -60,6 +62,7 @@ final class DrawerController {
         withObservationTracking {
             _ = prefs.windowLevel
             _ = prefs.edge
+            _ = prefs.drawerWidth
         } onChange: { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -103,11 +106,42 @@ final class DrawerController {
 
     private func drawerFrame(open: Bool) -> NSRect {
         let vf = screen.visibleFrame
-        let w = Self.drawerWidth
+        let w = liveWidth ?? clampedWidth(prefs.drawerWidth)
         let right = prefs.edge == .right
         let shownX = right ? vf.maxX - w - Self.edgeInset : vf.minX + Self.edgeInset
         let hiddenX = right ? vf.maxX + 4 : vf.minX - w - 4
         return NSRect(x: open ? shownX : hiddenX, y: vf.minY + 12, width: w, height: vf.height - 24)
+    }
+
+    /// Keep the drawer between its minimum and most of the screen.
+    private func clampedWidth(_ w: Double) -> CGFloat {
+        let maxW = min(Self.maxDrawerWidth, screen.visibleFrame.width * 0.7)
+        return min(max(CGFloat(w), Self.minDrawerWidth), max(Self.minDrawerWidth, maxW))
+    }
+
+    // MARK: resizing the drawer
+
+    /// Width while the inner edge is being dragged (saved to prefs when the drag ends).
+    private var liveWidth: CGFloat?
+    private var resizeStart: (mouse: NSPoint, width: CGFloat)?
+
+    /// Follow the pointer while the drawer's inner edge is dragged (screen coordinates, since
+    /// the window's origin moves with it when docked on the right).
+    func resizeDrawer() {
+        let mouse = currentMouse
+        if resizeStart == nil { resizeStart = (mouse, drawerPanel.frame.width) }
+        guard let start = resizeStart else { return }
+        let dx = mouse.x - start.mouse.x
+        liveWidth = clampedWidth(Double(start.width + (prefs.edge == .right ? -dx : dx)))
+        drawerPanel.setFrame(drawerFrame(open: true), display: true)
+    }
+
+    func endResize() {
+        guard resizeStart != nil else { return }
+        resizeStart = nil
+        if let w = liveWidth { prefs.drawerWidth = Double(w) }
+        liveWidth = nil
+        layout()
     }
 
     // MARK: dragging the tab
