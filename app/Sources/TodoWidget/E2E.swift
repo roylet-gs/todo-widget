@@ -157,6 +157,13 @@ final class E2EServer {
             s.model.redo()
         case "dismiss_runs":
             s.model.dismissRecentRuns()
+        case "set_schedule":
+            let c = ScheduleConfig(weekdaysOnly: cmd["weekdaysOnly"] as? Bool ?? true,
+                                   startHour: UInt8(cmd["startHour"] as? Int ?? 9),
+                                   endHour: UInt8(cmd["endHour"] as? Int ?? 17),
+                                   intervalMinutes: UInt32(cmd["intervalMinutes"] as? Int ?? 60))
+            try s.model.store.setSchedule(schedule: c)
+            s.model.reload()
         case "set_pref":
             try setPref(cmd["key"] as? String ?? "", cmd["value"])
         case "settings":
@@ -221,6 +228,9 @@ final class E2EServer {
             "done": m.done.map(t),
             "unread": m.unreadCount,
             "recentRuns": m.recentRuns.map { ["actor": $0.actor, "stats": $0.statsText, "summary": $0.summary ?? ""] },
+            "sources": m.sources.map { ["name": $0.name, "kind": $0.kind, "instructions": $0.instructions, "enabled": $0.enabled] },
+            "schedulePrompt": (try? m.store.renderSetupPrompt()) ?? "",
+            "discoveryPrompt": m.store.renderDiscoveryPrompt(),
             "selected": m.selected?.title ?? NSNull(),
             "toast": m.toast?.text ?? NSNull(),
             "drawerOpen": s.drawer.isOpen,

@@ -62,7 +62,7 @@ final class AppServices {
     func showSetup(step: Int = 0) {
         setupWindow?.close()
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 580),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 640),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered, defer: false)
         w.title = "Set up Todo Widget"

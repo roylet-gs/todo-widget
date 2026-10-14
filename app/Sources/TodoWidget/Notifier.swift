@@ -21,9 +21,24 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let open = UNNotificationAction(identifier: "open", title: "Open", options: [.foreground])
         let undo = UNNotificationAction(identifier: "undo", title: "Undo run", options: [.destructive])
         center.setNotificationCategories([UNNotificationCategory(identifier: "run", actions: [open, undo], intentIdentifiers: [])])
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         if defaults.object(forKey: "notifiedBaseline") == nil {
             defaults.set(Date().timeIntervalSince1970, forKey: "notifiedBaseline")
+        }
+    }
+
+    /// Asked during setup rather than at launch.
+    static func requestPermission(_ done: @escaping @MainActor (Bool) -> Void) {
+        guard Bundle.main.bundleIdentifier != nil, !E2E.enabled else { done(false); return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { done(granted) } }
+        }
+    }
+
+    static func permissionGranted(_ done: @escaping @MainActor (Bool) -> Void) {
+        guard Bundle.main.bundleIdentifier != nil, !E2E.enabled else { done(false); return }
+        UNUserNotificationCenter.current().getNotificationSettings { s in
+            let ok = s.authorizationStatus == .authorized || s.authorizationStatus == .provisional
+            DispatchQueue.main.async { MainActor.assumeIsolated { done(ok) } }
         }
     }
 

@@ -766,6 +766,34 @@ impl TodoStore {
         Ok(s)
     }
 
+    /// Create or update a source by name (case-insensitive). This is how agents manage sources.
+    pub fn upsert_source_by_name(&self, name: String, kind: String, instructions: String, enabled: bool) -> Result<Source> {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err(TodoError::Invalid("source name is required".into()));
+        }
+        let existing = {
+            let c = self.conn.lock().unwrap();
+            Self::sources_in(&c)?.into_iter().find(|s| s.name.eq_ignore_ascii_case(&name))
+        };
+        let source = match existing {
+            Some(s) => Source { name, kind, instructions, enabled, ..s },
+            None => Source { id: String::new(), name, kind, instructions, enabled, position: 0 },
+        };
+        self.save_source(source)
+    }
+
+    /// Remove a source by name (case-insensitive). Returns whether one was removed.
+    pub fn remove_source_by_name(&self, name: String) -> Result<bool> {
+        let c = self.conn.lock().unwrap();
+        let n = c.execute("DELETE FROM sources WHERE name = ?1 COLLATE NOCASE", [name.trim()])?;
+        drop(c);
+        if n > 0 {
+            notify::post_changed();
+        }
+        Ok(n > 0)
+    }
+
     pub fn delete_source(&self, id: String) -> Result<()> {
         let c = self.conn.lock().unwrap();
         c.execute("DELETE FROM sources WHERE id = ?1", [id])?;
@@ -805,8 +833,9 @@ impl TodoStore {
         Ok(rows)
     }
 
-    /// The run prompt with `{{sources}}`, `{{last_run}}`, `{{now}}` and `{{agent}}` filled in.
-    pub fn render_prompt(&self, agent: String) -> Result<String> {
+    /// The run prompt with `{{sources}}`, `{{last_run}}` and `{{now}}` filled in. Agent-agnostic:
+    /// the prompt itself asks the agent to pass its own name.
+    pub fn render_prompt(&self) -> Result<String> {
         let template = self.get_prompt()?;
         let sources = prompt::render_sources(&self.list_sources()?);
         let last_run = match self.last_run_at()? {
@@ -814,28 +843,34 @@ impl TodoStore {
             None => "the start of yesterday (first run)".into(),
         };
         let now = Local::now().format("%A %Y-%m-%d %H:%M").to_string();
-        Ok(prompt::fill(&template, &[("sources", &sources), ("last_run", &last_run), ("now", &now), ("agent", &agent)]))
+        Ok(prompt::fill(&template, &[("sources", &sources), ("last_run", &last_run), ("now", &now)]))
     }
 
-    pub fn get_setup_prompt(&self) -> Result<String> {
-        Ok(self.get_setting("setup_prompt".into())?.unwrap_or_else(|| prompt::DEFAULT_SETUP_PROMPT.to_string()))
+    /// The prompt to run once in any agent to discover and save sources.
+    pub fn render_discovery_prompt(&self) -> String {
+        prompt::DEFAULT_DISCOVERY_PROMPT.to_string()
     }
 
-    /// `None` resets to the generated default.
-    pub fn set_setup_prompt(&self, body: Option<String>) -> Result<()> {
-        match body {
-            Some(b) => self.set_setting("setup_prompt".into(), b),
-            None => {
-                let c = self.conn.lock().unwrap();
-                c.execute("DELETE FROM settings WHERE key = 'setup_prompt'", [])?;
-                Ok(())
-            }
+    /// The prompt to paste into an agent's scheduler, with the cadence from `get_schedule`.
+    pub fn render_setup_prompt(&self) -> Result<String> {
+        let schedule = prompt::schedule_text(&self.get_schedule()?);
+        Ok(prompt::fill(prompt::DEFAULT_SETUP_PROMPT, &[("schedule", &schedule)]))
+    }
+
+    pub fn get_schedule(&self) -> Result<ScheduleConfig> {
+        Ok(self
+            .get_setting("schedule".into())?
+            .and_then(|j| serde_json::from_str(&j).ok())
+            .unwrap_or_default())
+    }
+
+    pub fn set_schedule(&self, schedule: ScheduleConfig) -> Result<()> {
+        if schedule.start_hour >= schedule.end_hour || schedule.end_hour > 24 || schedule.interval_minutes == 0 {
+            return Err(TodoError::Invalid("schedule needs start < end <= 24 and a non-zero interval".into()));
         }
-    }
-
-    pub fn render_setup_prompt(&self, agent: String) -> Result<String> {
-        let schedule = self.get_setting("schedule_text".into())?.unwrap_or_else(|| prompt::DEFAULT_SCHEDULE.to_string());
-        Ok(prompt::fill(&self.get_setup_prompt()?, &[("agent", &agent), ("schedule", &schedule)]))
+        self.set_setting("schedule".into(), serde_json::to_string(&schedule)?)?;
+        notify::post_changed();
+        Ok(())
     }
 
     pub fn get_setting(&self, key: String) -> Result<Option<String>> {

@@ -120,3 +120,21 @@ pub struct UpsertResult {
     pub task: TodoItem,
     pub created: bool,
 }
+
+/// When the scheduled sync should run. Stored in the database so the CLI, the MCP server and
+/// the app's built-in runner all agree, and rendered into the schedule prompt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
+pub struct ScheduleConfig {
+    pub weekdays_only: bool,
+    /// Local hour the window opens (0–23).
+    pub start_hour: u8,
+    /// Local hour the window closes (1–24), exclusive.
+    pub end_hour: u8,
+    pub interval_minutes: u32,
+}
+
+impl Default for ScheduleConfig {
+    fn default() -> Self {
+        Self { weekdays_only: true, start_hour: 9, end_hour: 17, interval_minutes: 60 }
+    }
+}

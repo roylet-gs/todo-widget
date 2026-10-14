@@ -12,7 +12,8 @@ Collect lint, test, and visual evidence that the current changes work. Uses the 
    - `core/src/**` → Rust unit tests (`core/src/tests.rs`); any spec whose assertions depend on store behaviour
    - `cli/src/**` → `scripts/mcp_smoke.py`, specs `drawer_shows_seeded_tasks`, `live_update_from_agent`
    - `app/Sources/TodoWidget/DrawerView.swift`, `DrawerController.swift`, `TaskDetailView.swift`, `AppModel.swift` → drawer/tab specs
-   - `SettingsView.swift` → `settings_tabs`; `SetupView.swift` → `setup_flow`
+   - `SettingsView.swift` → `settings_tabs`; `SetupView.swift`, `PromptActions.swift` → `setup_flow`, `sources_managed_by_agent`, `schedule_prompt_is_hourly`
+   - `core/src/prompt.rs` → `schedule_prompt_is_hourly`, `sources_managed_by_agent` and the prompt unit tests
    - `E2E.swift`, `e2e/run.py`, `scripts/*` → run everything
    `python3 e2e/run.py --list` shows all specs.
 

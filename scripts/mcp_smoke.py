@@ -26,11 +26,11 @@ def send(method, params=None, notify=False):
         if m.get("id") == nid:
             return m
 
-def call(name, **args):
-    r = send("tools/call", {"name": name, "arguments": args})["result"]
+def call(tool, /, **args):
+    r = send("tools/call", {"name": tool, "arguments": args})["result"]
     text = r["content"][0]["text"]
     status = "ERR" if r.get("isError") else "ok "
-    print(f"{status} {name}: {text[:150].replace(chr(10), ' ')}")
+    print(f"{status} {tool}: {text[:150].replace(chr(10), ' ')}")
     return text
 
 send("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "0"}})
@@ -43,6 +43,12 @@ a = json.loads(call("upsert_task", source_ref="gmail:1", title="Submit expenses"
 call("upsert_task", source_ref="gmail:1", title="Submit September expenses")
 b = json.loads(call("upsert_task", source_ref="slack:9", title="Answer CONNECT-210 triage", priority=1, source="Linear"))["task"]["id"]
 call("reorder_tasks", ordered_ids=[b, a], rationales={b: "Unblocks triage", a: "Due in a week"})
+call("save_source", name="Slack", kind="Messages", instructions="DMs and mentions that ask me for something")
+call("save_source", name="slack", kind="Messages", instructions="DMs, mentions and #team threads")
+call("save_source", name="Gmail", kind="Email", instructions="Email from people that needs a reply")
+call("remove_source", name="Gmail")
+sources = json.loads(call("list_sources"))
+assert [s["name"] for s in sources] == ["slack"], sources
 call("get_changes_since", since="0")
 call("finish_run", summary="2 new, reordered")
 p.stdin.close(); p.wait(timeout=5)

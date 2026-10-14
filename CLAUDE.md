@@ -27,6 +27,14 @@ of its windows to `e2e/tmp/<spec>--<label>.png`.
   renders blank. Real glass needs a human look or `screencapture` with Screen Recording permission.
 - Failures leave `e2e/tmp/run/<spec>/app.log` and a `<spec>--FAILURE.png`.
 
+## Product rules
+- Agent-agnostic: prompts and UI never name a specific agent. Agents identify themselves via `start_run` /
+  `get_instructions`; that name is only stored as the actor on their changes. Only the MCP installers
+  (`Integrations.swift`, setup's Connect step) know about specific tools.
+- Sources are managed by agents through the MCP (`save_source`, `remove_source`); the app shows them read-only.
+- Prompts live in `core/src/prompt.rs` (run, discovery, schedule); the schedule cadence comes from
+  `get_schedule` / `set_schedule` in the core.
+
 ## Conventions
 - Every merge to `main` publishes a release (patch bump) and regenerates `Casks/todo-widget.rb`; don't edit the
   cask by hand, edit `packaging/todo-widget.rb.tmpl`.

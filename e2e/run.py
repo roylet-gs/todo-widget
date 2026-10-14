@@ -80,10 +80,10 @@ class Mcp:
             if m.get("id") == self.n:
                 return m
 
-    def call(self, name, **args):
-        r = self.send("tools/call", {"name": name, "arguments": args})["result"]
+    def call(self, tool, /, **args):
+        r = self.send("tools/call", {"name": tool, "arguments": args})["result"]
         if r.get("isError"):
-            raise Failure(f"MCP {name} failed: {r['content'][0]['text']}")
+            raise Failure(f"MCP {tool} failed: {r['content'][0]['text']}")
         return json.loads(r["content"][0]["text"]) if r["content"][0]["text"].startswith("{") else r["content"][0]["text"]
 
     def close(self):
@@ -160,7 +160,7 @@ class App:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
 
-    def cmd(self, command, timeout=10, **args):
+    def cmd(self, command, /, timeout=10, **args):
         self.n += 1
         cid = f"{self.n:05d}"
         tmp = self.dir / f"{cid}.cmd.json.tmp"
@@ -331,7 +331,7 @@ def click_outside_closes_unless_pinned(app: App):
 
 @spec
 def settings_tabs(app: App):
-    for tab in ["general", "sources", "prompt", "schedules", "agents", "history"]:
+    for tab in ["general", "sources", "prompt", "schedule", "history"]:
         s = app.cmd("settings", tab=tab)
         expect(s["settingsOpen"], f"settings did not open on {tab}")
         app.snapshot("settings", tab)
@@ -340,11 +340,55 @@ def settings_tabs(app: App):
 
 @spec
 def setup_flow(app: App):
-    for step, label in enumerate(["welcome", "placement", "sources", "agents", "schedule", "done"]):
+    for step, label in enumerate(["welcome", "connect", "sources", "schedule", "done"]):
         s = app.cmd("setup", step=step)
         expect(s["setupOpen"], "setup window did not open")
         app.snapshot("setup", f"{step}-{label}")
     app.cmd("close_setup")
+
+
+@spec
+def sources_managed_by_agent(app: App):
+    # Starts from the discovery step with no sources, as a fresh setup would.
+    for s in app.state()["sources"]:
+        subprocess.run([str(TODO), "sources", "rm", s["name"]], env=app.env, check=True, capture_output=True)
+    app.wait_state(lambda s: s["sources"] == [], "sources not cleared")
+    app.cmd("setup", step=2)
+    app.snapshot("setup", "waiting-for-agent")
+
+    m = Mcp(app.env, "Discovery Bot")
+    m.call("start_run", agent="Discovery Bot")
+    m.call("save_source", name="Slack", kind="Messages", instructions="DMs and threads in #cde-ops that ask me for something")
+    m.call("save_source", name="Linear", kind="Issues", instructions="Issues assigned to me in CDI and CONNECT")
+    s = app.wait_state(lambda s: [x["name"] for x in s["sources"]] == ["Slack", "Linear"], "app did not show the agent's sources", timeout=5)
+    app.snapshot("setup", "sources-discovered")
+
+    m.call("remove_source", name="slack")
+    m.call("finish_run", summary="Set up 1 source")
+    m.close()
+    s = app.wait_state(lambda s: [x["name"] for x in s["sources"]] == ["Linear"], "removal did not show up")
+    # Agents aren't registered anywhere: the name only appears as the actor on its run.
+    with sqlite3.connect(app.db) as c:
+        actors = [r[0] for r in c.execute("SELECT DISTINCT actor FROM groups WHERE kind = 'run'")]
+        tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    expect("Discovery Bot" in actors, f"run actors: {actors}")
+    expect(not any("agent" in t for t in tables), f"unexpected agent table: {tables}")
+    expect("own name" in s["discoveryPrompt"] and "{{" not in s["discoveryPrompt"], "discovery prompt should be agent-agnostic")
+    app.cmd("close_setup")
+    app.cmd("settings", tab="sources")
+    app.snapshot("settings", "sources")
+
+
+@spec
+def schedule_prompt_is_hourly(app: App):
+    p = app.state()["schedulePrompt"]
+    expect("every hour, on the hour, Monday to Friday from 09:00 to 17:00" in p, f"default schedule: {p}")
+    expect("get_instructions" in p and "never reuse" in p and "own name" in p, "schedule prompt must fetch instructions every run")
+    expect("{{" not in p, f"unfilled placeholder: {p}")
+    s = app.cmd("set_schedule", weekdaysOnly=False, startHour=8, endHour=18, intervalMinutes=60)
+    expect("every hour, on the hour, every day from 08:00 to 18:00" in s["schedulePrompt"], s["schedulePrompt"])
+    app.cmd("settings", tab="schedule")
+    app.snapshot("settings", "schedule")
 
 
 # ---------------------------------------------------------------------------

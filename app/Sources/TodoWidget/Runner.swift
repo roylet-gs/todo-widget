@@ -37,15 +37,21 @@ final class Runner {
         }
     }
 
+    /// Working hours and cadence shared with the schedule prompt (stored in the core).
+    private var schedule: ScheduleConfig {
+        (try? store.getSchedule()) ?? ScheduleConfig(weekdaysOnly: true, startHour: 9, endHour: 17, intervalMinutes: 60)
+    }
+
     var nextRun: Date? {
         guard prefs.runnerEnabled else { return nil }
         let cal = Calendar.current
-        var candidate = (lastRun ?? .distantPast).addingTimeInterval(TimeInterval(prefs.runnerIntervalMinutes * 60))
+        let sched = schedule
+        var candidate = (lastRun ?? .distantPast).addingTimeInterval(TimeInterval(sched.intervalMinutes) * 60)
         if candidate < Date() { candidate = Date() }
         for _ in 0..<(8 * 24 * 4) {
             if inWindow(candidate) { return candidate }
             candidate = cal.date(byAdding: .minute, value: 15, to: candidate) ?? candidate
-            if let start = cal.date(bySettingHour: prefs.runnerStartHour, minute: 0, second: 0, of: candidate), candidate < start, inWindow(start) {
+            if let start = cal.date(bySettingHour: Int(sched.startHour), minute: 0, second: 0, of: candidate), candidate < start, inWindow(start) {
                 return start
             }
         }
@@ -54,24 +60,25 @@ final class Runner {
 
     private func inWindow(_ d: Date) -> Bool {
         let cal = Calendar.current
-        if prefs.runnerWeekdaysOnly && cal.isDateInWeekend(d) { return false }
+        let sched = schedule
+        if sched.weekdaysOnly && cal.isDateInWeekend(d) { return false }
         let h = cal.component(.hour, from: d)
-        return h >= prefs.runnerStartHour && h < prefs.runnerEndHour
+        return h >= Int(sched.startHour) && h < Int(sched.endHour)
     }
 
     private func tick() {
         guard prefs.runnerEnabled, !isRunning, inWindow(Date()) else { return }
-        let due = (lastRun ?? .distantPast).addingTimeInterval(TimeInterval(prefs.runnerIntervalMinutes * 60))
+        let due = (lastRun ?? .distantPast).addingTimeInterval(TimeInterval(schedule.intervalMinutes) * 60)
         if Date() >= due { runNow() }
     }
 
     var commandPreview: String {
-        let args = arguments(prompt: "$(todo prompt --render --agent 'Claude Code')")
+        let args = arguments(prompt: "$(todo prompt --render)")
         return (["claude"] + args.map { $0.contains(" ") || $0.contains("{") ? "'\($0)'" : $0 }).joined(separator: " ")
     }
 
     private func arguments(prompt: String) -> [String] {
-        let mcp = Integrations.mcpSnippet(agent: Self.agentName).replacingOccurrences(of: "\n", with: "").replacingOccurrences(of: "  ", with: "")
+        let mcp = Integrations.mcpSnippet().replacingOccurrences(of: "\n", with: "").replacingOccurrences(of: "  ", with: "")
         var args = ["-p", prompt, "--model", prefs.runnerModel, "--mcp-config", mcp]
         let tools = prefs.runnerAllowedTools.split(whereSeparator: \.isWhitespace).map(String.init)
         if !tools.isEmpty { args += ["--allowedTools"] + tools }
@@ -86,7 +93,7 @@ final class Runner {
             return
         }
         let prompt: String
-        do { prompt = try store.renderPrompt(agent: Self.agentName) } catch {
+        do { prompt = try store.renderPrompt() } catch {
             append(RunLogEntry(startedAt: Date(), duration: 0, ok: false, message: "\(error)"))
             return
         }
