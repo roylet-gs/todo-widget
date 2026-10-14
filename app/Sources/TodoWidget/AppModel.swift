@@ -172,6 +172,17 @@ final class AppModel {
         if let task, task.unread { try? store.markRead(id: task.id) }
     }
 
+    /// Open the task's source link, in its desktop app when installed. False when it has no link.
+    @discardableResult
+    func openSource(_ task: TodoTask) -> Bool {
+        guard let s = task.sourceUrl, let url = URL(string: s) else { return false }
+        SourceOpener.open(url)
+        if task.unread { try? store.markRead(id: task.id) }
+        // The source app comes forward; get out of its way unless pinned, as a click outside would.
+        if !prefs.pinned { AppServices.shared?.drawer.close() }
+        return true
+    }
+
     func undo() {
         do {
             if let label = try store.undoLast() { showToast("Undid: \(label)", undoable: false) }

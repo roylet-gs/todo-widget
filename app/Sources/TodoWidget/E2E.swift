@@ -290,6 +290,7 @@ final class E2EServer {
             "typing": s.drawer.keys.typing,
             "keymap": Dictionary(uniqueKeysWithValues: KeyAction.allCases.map { ($0.rawValue, s.prefs.key($0).spoken) }),
             "toast": m.toast?.text ?? NSNull(),
+            "lastOpened": SourceOpener.lastOpened ?? NSNull(),
             "update": ["available": s.updater.updateAvailable, "updating": s.updater.updating,
                        "error": s.updater.updateError ?? ""] as [String: Any],
             "drawerOpen": s.drawer.isOpen,

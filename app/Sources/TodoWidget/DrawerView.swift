@@ -452,6 +452,9 @@ struct TaskListView: View {
         }
         .contextMenu {
             Button("Open") { model.select(t) }.menuShortcut(prefs, .open)
+            if t.sourceUrl != nil {
+                Button("Open in \(t.source ?? "source")") { model.openSource(t) }.menuShortcut(prefs, .openSource)
+            }
             Button("Mark done") { model.toggleDone(t) }.menuShortcut(prefs, .toggleDone)
             Button("Move up") { model.nudge(t.id, by: -1) }.menuShortcut(prefs, .moveUp).disabled(index == 0)
             Button("Move down") { model.nudge(t.id, by: 1) }.menuShortcut(prefs, .moveDown)

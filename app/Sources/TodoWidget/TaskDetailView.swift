@@ -147,10 +147,16 @@ struct TaskDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.fill.tertiary, in: .rect(cornerRadius: 16))
                 }
-                if let s = task.sourceUrl, let url = URL(string: s) {
-                    Link(destination: url) {
-                        Label("Open in \(task.source ?? "source")", systemImage: "arrow.up.right").font(.callout.weight(.semibold))
+                if task.sourceUrl != nil {
+                    Button { model.openSource(task) } label: {
+                        HStack(spacing: 6) {
+                            Label("Open in \(task.source ?? "source")", systemImage: "arrow.up.right").font(.callout.weight(.semibold))
+                            if prefs.showKeyHints { KeyCap(prefs.key(.openSource).display) }
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                    .keyHelp(prefs, "Open in \(task.source ?? "source")", .openSource)
                 }
             }
         }
