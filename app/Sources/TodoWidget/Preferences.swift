@@ -77,6 +77,8 @@ final class Preferences {
     var tabDisplay: Int { didSet { d.set(tabDisplay, forKey: "tabDisplay") } }
     var clearDone: ClearDone { didSet { d.set(clearDone.rawValue, forKey: "clearDone") } }
     var pinned: Bool { didSet { d.set(pinned, forKey: "pinned") } }
+    /// Width of the open drawer, set by dragging its inner edge.
+    var drawerWidth: Double { didSet { d.set(drawerWidth, forKey: "drawerWidth") } }
 
     // Built-in runner
     var runnerEnabled: Bool { didSet { d.set(runnerEnabled, forKey: "runnerEnabled") } }
@@ -99,13 +101,14 @@ final class Preferences {
         tabDisplay = d.integer(forKey: "tabDisplay")
         clearDone = ClearDone(rawValue: d.string(forKey: "clearDone") ?? "") ?? .midnight
         pinned = d.bool(forKey: "pinned")
+        drawerWidth = d.object(forKey: "drawerWidth") as? Double ?? 400
         runnerEnabled = d.bool(forKey: "runnerEnabled")
         runnerModel = d.string(forKey: "runnerModel") ?? "sonnet"
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
         apply()
     }
 
-    static let keys = ["appearance", "windowLevel", "edge", "tabY", "tabDisplay", "clearDone", "pinned", "runnerEnabled",
+    static let keys = ["appearance", "windowLevel", "edge", "tabY", "tabDisplay", "clearDone", "pinned", "drawerWidth", "runnerEnabled",
                        "runnerModel",
                        "runnerAllowedTools", "runnerLastRun", "runnerLog", "setupComplete"]
 
@@ -119,6 +122,7 @@ final class Preferences {
         tabDisplay = d.integer(forKey: "tabDisplay")
         clearDone = ClearDone(rawValue: d.string(forKey: "clearDone") ?? "") ?? .midnight
         pinned = d.bool(forKey: "pinned")
+        drawerWidth = d.object(forKey: "drawerWidth") as? Double ?? 400
         runnerEnabled = d.bool(forKey: "runnerEnabled")
         runnerModel = d.string(forKey: "runnerModel") ?? "sonnet"
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
