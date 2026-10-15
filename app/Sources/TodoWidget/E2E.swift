@@ -197,20 +197,22 @@ final class E2EServer {
         case "focus_quick_add":
             s.drawer.keys.perform(.newTask)
         case "modifier_events":
-            // Synthetic modifier presses for the double-tap detector: "down", "up" or "key", 50 ms apart.
+            // Synthetic modifier presses for the double-tap detector: "down", "up" or "key", 50 ms apart,
+            // with `holding` modifiers held throughout.
             let m = Mod(rawValue: cmd["modifier"] as? String ?? "command") ?? .command
+            let hold = Set(mods(cmd["holding"]))
             var t = ProcessInfo.processInfo.systemUptime
             for e in cmd["events"] as? [String] ?? [] {
                 t += 0.05
                 switch e {
-                case "down": s.hotkey.flagsChanged([m], at: t)
-                case "up": s.hotkey.flagsChanged([], at: t)
+                case "down": s.hotkey.flagsChanged(hold.union([m]), at: t)
+                case "up": s.hotkey.flagsChanged(hold, at: t)
                 default: s.hotkey.keyDown()
                 }
             }
         case "set_keybinding":
             guard let a = KeyAction(rawValue: cmd["action"] as? String ?? "") else { throw Failure(description: "unknown action") }
-            let b = (cmd["doubleTap"] as? String).flatMap(Mod.init(rawValue:)).map { KeyBinding(doubleTap: $0) }
+            let b = (cmd["doubleTap"] as? String).flatMap(Mod.init(rawValue:)).map { KeyBinding(doubleTap: $0, holding: mods(cmd["modifiers"])) }
                 ?? KeyBinding(cmd["key"] as? String ?? "", mods(cmd["modifiers"]))
             s.prefs.keymap.set(b, for: a)
         case "reset_keymap":

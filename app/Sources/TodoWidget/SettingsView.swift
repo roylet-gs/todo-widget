@@ -214,9 +214,9 @@ struct KeyboardPane: View {
             CardRow(title: KeyAction.toggleWidget.title, detail: "Works from any app.") {
                 HStack(spacing: 10) {
                     Picker("", selection: toggleStyle) {
-                        ForEach(Mod.allCases.reversed()) { m in Text("Double-tap \(m.symbol) \(m.name)").tag(Optional(m)) }
+                        ForEach(Self.doubleTaps, id: \.self) { b in Text(b.spoken).tag(Optional(b)) }
                         Divider()
-                        Text("Shortcut").tag(Mod?.none)
+                        Text("Shortcut").tag(KeyBinding?.none)
                     }
                     .labelsHidden().frame(width: 190)
                     if prefs.key(.toggleWidget).doubleTap == nil {
@@ -269,13 +269,17 @@ struct KeyboardPane: View {
         return "⚠︎ Also used by \(c.map(\.title).joined(separator: ", ")). Only one of them will run."
     }
 
-    /// The modifier to double-tap, or nil for an ordinary shortcut.
-    private var toggleStyle: Binding<Mod?> {
+    /// The double taps offered for the global toggle: the default (⌃ + double-tap ⌘) first, then each lone modifier.
+    private static let doubleTaps = [KeyAction.toggleWidget.defaultBinding] + Mod.allCases.reversed().map { KeyBinding(doubleTap: $0) }
+
+    /// The double tap in use, or nil for an ordinary shortcut.
+    private var toggleStyle: Binding<KeyBinding?> {
         Binding {
-            prefs.key(.toggleWidget).doubleTap
-        } set: { m in
-            if let m {
-                prefs.keymap.set(KeyBinding(doubleTap: m), for: .toggleWidget)
+            let b = prefs.key(.toggleWidget)
+            return b.doubleTap == nil ? nil : b
+        } set: { b in
+            if let b {
+                prefs.keymap.set(b, for: .toggleWidget)
             } else if prefs.key(.toggleWidget).doubleTap != nil {
                 prefs.keymap.set(KeyBinding("space", [.control, .option]), for: .toggleWidget)
             }

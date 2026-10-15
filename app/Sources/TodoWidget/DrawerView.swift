@@ -227,11 +227,13 @@ struct TaskListView: View {
     }
 
     /// What the keyboard can do right now, along the bottom of the list.
-    /// As the drawer narrows, the Shortcuts label goes first (its ? key stays), then the global toggle hint.
+    /// As the drawer narrows, the Shortcuts label goes first (its ? key stays), then the Delete hint, then the
+    /// global toggle hint.
     private var keyFooter: some View {
         ViewThatFits(in: .horizontal) {
             keyFooterRow(showToggle: true, shortcutsLabel: true)
             keyFooterRow(showToggle: true, shortcutsLabel: false)
+            keyFooterRow(showToggle: true, shortcutsLabel: false, showDelete: false)
             keyFooterRow(showToggle: false, shortcutsLabel: true)
         }
         .font(.caption2)
@@ -240,12 +242,12 @@ struct TaskListView: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func keyFooterRow(showToggle: Bool, shortcutsLabel: Bool) -> some View {
+    private func keyFooterRow(showToggle: Bool, shortcutsLabel: Bool, showDelete: Bool = true) -> some View {
         HStack(spacing: 8) {
             footerHint(prefs.key(.previous).display + prefs.key(.next).display, "Select")
             footerHint(prefs.key(.open).display, "Open")
             footerHint(prefs.key(.toggleDone).display, "Done")
-            footerHint(prefs.key(.delete).display, "Delete")
+            if showDelete { footerHint(prefs.key(.delete).display, "Delete") }
             if showToggle {
                 footerHint(prefs.key(.toggleWidget).display, "Hide")
                     .keyHelp(prefs, "Show or hide the widget from any app", .toggleWidget)

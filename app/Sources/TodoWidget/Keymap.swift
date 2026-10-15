@@ -33,7 +33,8 @@ enum Mod: String, Codable, CaseIterable, Identifiable, Comparable {
     static func < (a: Mod, b: Mod) -> Bool { allCases.firstIndex(of: a)! < allCases.firstIndex(of: b)! }
 }
 
-/// One key binding: a key plus modifiers, or a double tap of a lone modifier (global toggle only).
+/// One key binding: a key plus modifiers, or a double tap of a modifier (global toggle only), optionally
+/// while holding others (`mods`), e.g. hold ⌃ and double-tap ⌘.
 /// `key` is a lowercased character ("e", "?") or a special key name ("up", "return", "space"…).
 struct KeyBinding: Codable, Hashable {
     var key: String = ""
@@ -48,7 +49,10 @@ struct KeyBinding: Codable, Hashable {
         code = Self.specialCodes[key] ?? Self.letterCodes[key]
     }
 
-    init(doubleTap: Mod) { self.doubleTap = doubleTap }
+    init(doubleTap: Mod, holding: [Mod] = []) {
+        self.doubleTap = doubleTap
+        mods = holding.filter { $0 != doubleTap }.sorted()
+    }
 
     init?(event: NSEvent) {
         let name = Self.specialNames[event.keyCode]
@@ -72,15 +76,17 @@ struct KeyBinding: Codable, Hashable {
 
     var hasCommandOrControl: Bool { mods.contains(.command) || mods.contains(.control) }
 
-    /// Compact form for key caps, e.g. "⌥⌘↑", "Space", "⌘⌘".
+    /// Compact form for key caps, e.g. "⌥⌘↑", "Space", "⌘⌘", "⌃⌘⌘".
     var display: String {
-        if let m = doubleTap { return m.symbol + m.symbol }
+        if let m = doubleTap { return mods.sorted().map(\.symbol).joined() + m.symbol + m.symbol }
         return mods.sorted().map(\.symbol).joined() + keySymbol
     }
 
-    /// Readable form for tooltips and accessibility, e.g. "Double-tap ⌘".
+    /// Readable form for tooltips and accessibility, e.g. "Double-tap ⌘", "⌃ + double-tap ⌘".
     var spoken: String {
-        if let m = doubleTap { return "Double-tap \(m.symbol)" }
+        if let m = doubleTap {
+            return mods.isEmpty ? "Double-tap \(m.symbol)" : mods.sorted().map(\.symbol).joined() + " + double-tap \(m.symbol)"
+        }
         return display
     }
 
@@ -228,7 +234,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
 
     var defaultBinding: KeyBinding {
         switch self {
-        case .toggleWidget: KeyBinding(doubleTap: .command)
+        case .toggleWidget: KeyBinding(doubleTap: .command, holding: [.control])
         case .previous: KeyBinding("up")
         case .next: KeyBinding("down")
         case .first: KeyBinding("up", [.command])

@@ -482,12 +482,16 @@ def keyboard_text_field_passthrough(app: App):
 
 @spec
 def keyboard_global_toggle(app: App):
+    ctrl = ["control"]
     s = app.cmd("modifier_events", modifier="command", events=["down", "up", "down", "up"])
-    expect(s["drawerOpen"], "double-tap cmd should open the drawer")
-    s = app.cmd("modifier_events", modifier="command", events=["down", "up", "down", "up"])
-    expect(not s["drawerOpen"], "double-tap cmd again should close it")
-    s = app.cmd("modifier_events", modifier="command", events=["down", "key", "up", "down", "up"])
-    expect(not s["drawerOpen"], "cmd-C then a tap is not a double tap")
+    expect(not s["drawerOpen"], "a plain double-tap cmd should do nothing by default")
+    s = app.cmd("modifier_events", modifier="command", holding=ctrl, events=["down", "up", "down", "up"])
+    expect(s["drawerOpen"], "ctrl + double-tap cmd should open the drawer")
+    s = app.cmd("modifier_events", modifier="command", holding=ctrl, events=["down", "up", "down", "up"])
+    expect(not s["drawerOpen"], "ctrl + double-tap cmd again should close it")
+    s = app.cmd("modifier_events", modifier="command", holding=ctrl, events=["down", "key", "up", "down", "up"])
+    expect(not s["drawerOpen"], "ctrl-cmd-C then a tap is not a double tap")
+    expect(s["keymap"]["toggleWidget"] == "⌃ + double-tap ⌘", f"keymap: {s['keymap']['toggleWidget']}")
     s = app.cmd("modifier_events", modifier="option", events=["down", "up", "down", "up"])
     expect(not s["drawerOpen"], "double-tap option should do nothing by default")
     app.cmd("set_keybinding", action="toggleWidget", doubleTap="option")
