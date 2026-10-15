@@ -216,6 +216,16 @@ class App:
         return dest
 
 
+def to_list(app: App):
+    """The drawer opens in quick add; ↓ steps onto the list (no-op offscreen, where the field may not take focus)."""
+    app.settle()
+    s = app.state()
+    if s["typing"]:
+        s = app.cmd("key", key="down")
+        expect(s["handled"] and not s["typing"], f"down should leave quick add: {s['handled']} typing={s['typing']}")
+    return s
+
+
 def titles(tasks):
     return [t["title"] for t in tasks]
 
@@ -374,6 +384,7 @@ def settings_tabs(app: App):
 def keyboard_navigate_and_open(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     s = app.cmd("open_drawer")
+    s = to_list(app)
     order = titles(s["open"])
     expect(s["highlighted"] == order[0], f"opening should highlight the first task: {s['highlighted']}")
     app.cmd("key", key="down")
@@ -408,6 +419,7 @@ def keyboard_navigate_and_open(app: App):
 def keyboard_open_source(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     app.cmd("open_drawer")
+    to_list(app)
     # From the list: highlight the Slack task and open its source without opening the detail.
     app.cmd("select", title="Sam about the Q4")
     app.cmd("key", key="escape")
@@ -437,6 +449,7 @@ def keyboard_open_source(app: App):
 def keyboard_done_delete_undo(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     s = app.cmd("open_drawer")
+    s = to_list(app)
     order = titles(s["open"])
     s = app.cmd("key", key="space")
     s = app.wait_state(lambda s: order[0] in titles(s["done"]), "space should mark the first task done")
@@ -477,7 +490,35 @@ def keyboard_text_field_passthrough(app: App):
     s = app.cmd("key", key="delete")
     expect(not s["handled"], "delete in quick add should edit text, not delete a task")
     s = app.cmd("key", key="escape")
-    expect(s["handled"] and not s["typing"] and s["drawerOpen"], "esc should leave the field, not close the drawer")
+    expect(s["handled"] and not s["drawerOpen"], "esc in quick add should collapse the drawer")
+
+
+@spec
+def quick_add_focused_on_open(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    s = app.cmd("open_drawer")
+    order = titles(s["open"])
+    app.settle()
+    s = app.state()
+    if not s["typing"]:
+        print("    (quick add did not take focus offscreen; skipping focus checks)")
+        return
+    app.cmd("type_quick_add", text="Book the dentist")
+    app.settle()
+    app.snapshot("drawer", "quick-add-focused")
+    s = app.cmd("key", key="escape")
+    expect(s["handled"] and not s["drawerOpen"], "esc in quick add should collapse the drawer")
+    app.cmd("open_drawer")
+    app.settle()
+    s = app.state()
+    expect(s["typing"], "reopening should focus quick add again")
+    expect(s["quickAddDraft"] == "Book the dentist", f"draft should survive closing: {s['quickAddDraft']!r}")
+    s = app.cmd("key", key="down")
+    expect(s["handled"] and not s["typing"], "down should leave quick add")
+    expect(s["highlighted"] == order[0], f"down should land on the first task: {s['highlighted']}")
+    s = app.cmd("key", key="down")
+    expect(s["highlighted"] == order[1], f"next down moves down the list: {s['highlighted']}")
+    expect(s["quickAddDraft"] == "Book the dentist", "leaving the field keeps the draft")
 
 
 @spec
@@ -521,6 +562,7 @@ def keyboard_footer_toggle_hint(app: App):
 def keyboard_rebind(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     s = app.cmd("open_drawer")
+    s = to_list(app)
     order = titles(s["open"])
     app.cmd("set_keybinding", action="toggleDone", key="x")
     s = app.cmd("key", key="space")

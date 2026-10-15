@@ -174,7 +174,6 @@ struct TaskListView: View {
     let updater: Updater
     let controller: DrawerController
 
-    @State private var newTitle = ""
     @State private var runsExpanded = false
     @State private var dragging: String?
     @State private var dropTarget: String?
@@ -407,12 +406,12 @@ struct TaskListView: View {
     private var quickAdd: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus").foregroundStyle(.secondary)
-            TextField("Add task…", text: $newTitle)
+            TextField("Add task…", text: Bindable(model).quickAddDraft)
                 .textFieldStyle(.plain)
                 .focused($addFocused)
                 .onSubmit {
-                    model.add(newTitle)
-                    newTitle = ""
+                    model.add(model.quickAddDraft)
+                    model.quickAddDraft = ""
                 }
                 .onChange(of: addFocused) { _, f in if f { controller.engage() } }
             if prefs.showKeyHints { KeyCap(prefs.key(.newTask).display) }

@@ -36,6 +36,8 @@ final class AppModel {
     var showShortcuts = false
     /// Requests from the keyboard handler to views that own the focus and edit state.
     var wantsQuickAdd = false
+    /// Unsubmitted quick-add text; survives opening a task and closing the drawer.
+    var quickAddDraft = ""
     var wantsEdit = false
     var wantsSave = false
     var toast: Toast?
