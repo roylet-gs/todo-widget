@@ -516,9 +516,18 @@ def quick_add_focused_on_open(app: App):
     s = app.cmd("key", key="down")
     expect(s["handled"] and not s["typing"], "down should leave quick add")
     expect(s["highlighted"] == order[0], f"down should land on the first task: {s['highlighted']}")
+    app.settle()
+    app.snapshot("drawer", "on-list")
     s = app.cmd("key", key="down")
     expect(s["highlighted"] == order[1], f"next down moves down the list: {s['highlighted']}")
     expect(s["quickAddDraft"] == "Book the dentist", "leaving the field keeps the draft")
+    # Back into quick add from further down: ↓ still goes to the first task, not where the cursor was.
+    app.cmd("key", key="n", modifiers=["command"])
+    app.settle()
+    s = app.cmd("key", key="down")
+    expect(not s["typing"] and s["highlighted"] == order[0], f"down from quick add goes to the first task: {s['highlighted']}")
+    s = app.cmd("key", key="return")
+    expect(s["selected"] == order[0], f"return on the list opens the task: {s['selected']}")
 
 
 @spec
