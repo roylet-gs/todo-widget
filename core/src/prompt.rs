@@ -1,7 +1,7 @@
 //! Prompts the app hands to agents. They are agent-agnostic: every prompt asks the agent to
 //! pass its own name, which is stored only as the actor on the changes it makes.
 
-use crate::model::{ScheduleConfig, Source};
+use crate::model::{Feedback, Learning, ScheduleConfig, Source};
 
 /// The run prompt every agent receives through `get_instructions` on each scheduled run.
 pub const DEFAULT_PROMPT: &str = r#"You maintain my todo list using the "todo" MCP tools. Work in this order:
@@ -15,7 +15,8 @@ pub const DEFAULT_PROMPT: &str = r#"You maintain my todo list using the "todo" M
    a task I completed and never re-add one I deleted.
 4. For each actionable item, call upsert_task with a stable source_ref, the
    permalink as source_url, a short excerpt, who it came from, and a
-   2-sentence summary.
+   2-sentence summary. Follow what you've learned about my preferences
+   (below) when deciding what is worth adding.
 5. Call complete_task for tasks the source shows are resolved, with a reason.
 6. Rank all open tasks with reorder_tasks, using these rules:
    - Anything blocking another person comes first.
@@ -97,6 +98,59 @@ pub fn render_sources(sources: &[Source]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Most feedback items sent in one prompt; older ones wait for a later run.
+pub const MAX_FEEDBACK_IN_PROMPT: usize = 30;
+
+/// The learning section appended to every run prompt: the notes so far, feedback not yet folded
+/// into them, and the step that asks the agent to update the notes before finishing.
+pub fn render_learning(learnings: &[Learning], feedback: &[Feedback]) -> String {
+    let mut out = String::from("What you've learned about my preferences:\n");
+    if learnings.is_empty() {
+        out.push_str("   (nothing yet)\n");
+    }
+    for l in learnings {
+        let mine = if l.author == crate::USER { " (written by me)" } else { "" };
+        out.push_str(&format!("   - {}{mine}\n", l.text));
+    }
+    if feedback.is_empty() {
+        out.push_str(&format!(
+            "\nNo new feedback on your tasks. If any note above is stale or duplicated, tidy the list\n\
+             with save_learnings before finish_run (at most {} short notes); otherwise leave it.",
+            crate::MAX_LEARNINGS
+        ));
+        return out;
+    }
+    out.push_str("\nNew feedback on tasks agents added (id: task, source, from):\n");
+    for f in feedback.iter().take(MAX_FEEDBACK_IN_PROMPT) {
+        let mut line = format!("   #{} {}: \"{}\"", f.id, if f.kind == "good" { "COMPLETED" } else { "REJECTED" }, f.title);
+        let origin: Vec<&str> = [f.source.as_deref(), f.source_from.as_deref()].into_iter().flatten().collect();
+        if !origin.is_empty() {
+            line.push_str(&format!(" ({})", origin.join(", ")));
+        }
+        if let Some(e) = &f.excerpt {
+            line.push_str(&format!(" excerpt: {}", e.replace('\n', " ")));
+        }
+        if let Some(r) = &f.reason {
+            line.push_str(&format!(" | my reason: {r}"));
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    if feedback.len() > MAX_FEEDBACK_IN_PROMPT {
+        out.push_str(&format!("   (and {} older items for a later run)\n", feedback.len() - MAX_FEEDBACK_IN_PROMPT));
+    }
+    out.push_str(&format!(
+        "\nBefore finish_run, update your notes: call save_learnings with the complete new list of\n\
+         notes and the ids of the feedback above that you folded in. Completed tasks show what I\n\
+         want; rejected ones show what to stop adding. Write general, reusable rules (which\n\
+         sources, senders, channels or kinds of request matter or don't), not one note per task.\n\
+         Merge overlapping notes and drop ones the feedback contradicts. Keep notes written by me\n\
+         unless my own feedback clearly contradicts them. At most {} notes of one sentence each.",
+        crate::MAX_LEARNINGS
+    ));
+    out
 }
 
 pub fn fill(template: &str, vars: &[(&str, &str)]) -> String {

@@ -60,6 +60,13 @@ enum Cmd {
     Reopen { id: String },
     /// Delete a task.
     Rm { id: String },
+    /// Reject a task an agent added: deletes it and tells future runs not to add tasks like it.
+    Reject {
+        id: String,
+        /// Why it wasn't useful; agents learn from this.
+        #[arg(short, long)]
+        reason: Option<String>,
+    },
     /// Move a task to a 1-based position.
     Mv { id: String, position: u32 },
     /// Undo the most recent change (a whole agent run counts as one change).
@@ -207,6 +214,10 @@ fn main() -> Result<()> {
         Cmd::Rm { id } => {
             let t = store.delete_task(id, actor, None, None)?;
             println!("Deleted: {}", t.title);
+        }
+        Cmd::Reject { id, reason } => {
+            let t = store.reject_task(id, reason)?;
+            println!("Rejected: {}", t.title);
         }
         Cmd::Mv { id, position } => {
             let t = store.move_task(id, position.saturating_sub(1))?;

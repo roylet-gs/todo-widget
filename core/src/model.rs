@@ -138,3 +138,33 @@ impl Default for ScheduleConfig {
         Self { weekdays_only: true, start_hour: 9, end_hour: 17, interval_minutes: 60 }
     }
 }
+
+/// A signal about an agent-added task that the next run folds into its learning notes:
+/// the user completed it ("good") or rejected it ("rejected", with an optional reason).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
+pub struct Feedback {
+    pub id: i64,
+    pub task_id: String,
+    /// "good" or "rejected".
+    pub kind: String,
+    pub title: String,
+    pub source: Option<String>,
+    pub source_from: Option<String>,
+    pub excerpt: Option<String>,
+    /// The agent that added the task.
+    pub added_by: String,
+    pub reason: Option<String>,
+    pub task_created_at: i64,
+    pub created_at: i64,
+}
+
+/// A short note about the user's preferences, curated by agents from feedback and editable by the user.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
+pub struct Learning {
+    pub id: i64,
+    pub text: String,
+    /// Agent name, or "You" for notes the user wrote or edited.
+    pub author: String,
+    pub position: i64,
+    pub updated_at: i64,
+}

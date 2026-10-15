@@ -218,3 +218,173 @@ fn reset_keeps_or_erases_tasks() {
     assert!(titles(&s).is_empty());
     assert!(s.history(10).unwrap().is_empty());
 }
+
+fn feedback_kinds(s: &TodoStore) -> Vec<(String, String)> {
+    s.list_feedback().unwrap().into_iter().map(|f| (f.kind, f.title)).collect()
+}
+
+#[test]
+fn user_completing_an_agent_task_is_positive_feedback() {
+    let (_d, s) = store();
+    let a = s.add_task(input("agent task", None), "Claude".into(), None).unwrap();
+    let b = s.add_task(input("agent resolves", None), "Claude".into(), None).unwrap();
+    let mine = s.add_task(input("mine", None), USER.into(), None).unwrap();
+    s.set_done(b.id, true, "Claude".into(), None, Some("resolved".into())).unwrap();
+    s.set_done(mine.id, true, USER.into(), None, None).unwrap();
+    assert!(feedback_kinds(&s).is_empty(), "only the user finishing an agent's task counts");
+
+    s.set_done(a.id.clone(), true, USER.into(), None, None).unwrap();
+    assert_eq!(feedback_kinds(&s), [("good".to_string(), "agent task".to_string())]);
+    s.undo_last().unwrap();
+    assert!(feedback_kinds(&s).is_empty(), "undo hides it");
+    s.redo_last().unwrap();
+    assert_eq!(feedback_kinds(&s).len(), 1, "redo brings it back");
+    s.set_done(a.id.clone(), false, USER.into(), None, None).unwrap();
+    assert!(feedback_kinds(&s).is_empty(), "reopening hides it");
+    s.set_done(a.id, true, USER.into(), None, None).unwrap();
+    assert_eq!(feedback_kinds(&s).len(), 1, "completing again does not duplicate it");
+}
+
+#[test]
+fn reject_deletes_and_records_reason_and_undo_restores() {
+    let (_d, s) = store();
+    let mut i = input("Review PR 42", Some("gh:42"));
+    i.source = Some("GitHub".into());
+    i.excerpt = Some("x".repeat(500));
+    let a = s.add_task(i, "Hermes".into(), None).unwrap();
+    let mine = s.add_task(input("mine", None), USER.into(), None).unwrap();
+    assert!(s.reject_task(mine.id, None).is_err(), "the user's own tasks can't be rejected");
+
+    s.reject_task(a.id.clone(), Some("  bots' PRs don't need me ".into())).unwrap();
+    assert_eq!(titles(&s), ["mine"]);
+    let f = &s.list_feedback().unwrap()[0];
+    assert_eq!((f.kind.as_str(), f.reason.as_deref(), f.added_by.as_str()), ("rejected", Some("bots' PRs don't need me"), "Hermes"));
+    assert_eq!(f.source.as_deref(), Some("GitHub"));
+    assert!(f.excerpt.as_ref().unwrap().chars().count() <= 201);
+    let ev = s.task_history(a.id).unwrap().pop().unwrap();
+    assert_eq!(ev.reason.as_deref(), Some("Rejected: bots' PRs don't need me"));
+
+    s.undo_last().unwrap();
+    assert_eq!(titles(&s), ["mine", "Review PR 42"]);
+    assert!(s.list_feedback().unwrap().is_empty());
+    s.redo_last().unwrap();
+    assert_eq!(s.list_feedback().unwrap().len(), 1);
+    s.undo_last().unwrap();
+    s.add_task(input("new", None), USER.into(), None).unwrap();
+    s.redo_last().unwrap();
+    assert!(s.list_feedback().unwrap().is_empty(), "a new change makes the undone reject final");
+    assert!(s.list_feedback().unwrap().is_empty());
+}
+
+#[test]
+fn agents_fold_feedback_into_capped_notes() {
+    let (_d, s) = store();
+    let a = s.add_task(input("a", None), "Claude".into(), None).unwrap();
+    let b = s.add_task(input("b", None), "Claude".into(), None).unwrap();
+    s.set_done(a.id, true, USER.into(), None, None).unwrap();
+    s.reject_task(b.id, None).unwrap();
+    let mine = s.add_learning("Never add calendar invites".into()).unwrap();
+    let fb = s.list_feedback().unwrap();
+    assert_eq!(fb.len(), 2);
+
+    let notes = s
+        .save_learnings(
+            vec!["Never add calendar invites".into(), "  Direct asks from Sam matter ".into(), " ".into()],
+            vec![fb[0].id],
+            "Claude".into(),
+        )
+        .unwrap();
+    assert_eq!(notes.iter().map(|l| (l.text.as_str(), l.author.as_str())).collect::<Vec<_>>(), [
+        ("Never add calendar invites", USER),
+        ("Direct asks from Sam matter", "Claude"),
+    ]);
+    assert_ne!(notes[0].id, mine.id, "notes are replaced as a set");
+    assert_eq!(s.list_feedback().unwrap().len(), 1, "processed feedback is dropped");
+
+    assert!(s.save_learnings(vec!["n".into(); MAX_LEARNINGS + 1], vec![], "Claude".into()).is_err());
+    assert!(s.save_learnings(vec!["x".repeat(MAX_LEARNING_CHARS + 1)], vec![], "Claude".into()).is_err());
+    assert_eq!(s.list_learnings().unwrap().len(), 2, "a rejected save changes nothing");
+
+    let id = s.list_learnings().unwrap()[1].id;
+    s.update_learning(id, "Direct asks from Sam or Ana matter".into()).unwrap();
+    assert_eq!(s.list_learnings().unwrap()[1].author, USER, "editing a note makes it the user's");
+    s.delete_learning(id).unwrap();
+    assert_eq!(s.list_learnings().unwrap().len(), 1);
+    assert!(s.add_learning("  ".into()).is_err());
+    s.clear_learnings().unwrap();
+    assert!(s.list_learnings().unwrap().is_empty());
+}
+
+#[test]
+fn prompt_carries_notes_feedback_and_learn_step() {
+    let (_d, s) = store();
+    let lean = s.render_prompt().unwrap();
+    assert!(lean.contains("(nothing yet)") && lean.contains("No new feedback"), "{lean}");
+    assert!(!lean.contains("{{"));
+
+    let mut i = input("Reply to bot digest", None);
+    i.source = Some("Slack".into());
+    i.source_from = Some("digest-bot · #alerts".into());
+    let a = s.add_task(i, "Claude".into(), None).unwrap();
+    let b = s.add_task(input("Prep 1:1 notes", None), "Claude".into(), None).unwrap();
+    s.reject_task(a.id, Some("automated digests are noise".into())).unwrap();
+    s.set_done(b.id, true, USER.into(), None, None).unwrap();
+    s.add_learning("Skip FYI-only threads".into()).unwrap();
+    // A custom template still gets the learning section.
+    s.set_prompt("custom {{now}}".into()).unwrap();
+    let p = s.render_prompt().unwrap();
+    assert!(p.starts_with("custom "));
+    assert!(p.contains("- Skip FYI-only threads (written by me)"), "{p}");
+    assert!(p.contains("REJECTED: \"Reply to bot digest\" (Slack, digest-bot · #alerts)"), "{p}");
+    assert!(p.contains("my reason: automated digests are noise"), "{p}");
+    assert!(p.contains("COMPLETED: \"Prep 1:1 notes\""), "{p}");
+    assert!(p.contains("save_learnings") && p.contains("finish_run"));
+}
+
+#[test]
+fn feedback_in_prompt_is_capped() {
+    let fb: Vec<Feedback> = (0..40)
+        .map(|n| Feedback {
+            id: n,
+            task_id: n.to_string(),
+            kind: "good".into(),
+            title: format!("t{n}"),
+            source: None,
+            source_from: None,
+            excerpt: None,
+            added_by: "Claude".into(),
+            reason: None,
+            task_created_at: 0,
+            created_at: 0,
+        })
+        .collect();
+    let p = prompt::render_learning(&[], &fb);
+    assert!(p.contains("\"t29\"") && !p.contains("\"t30\""));
+    assert!(p.contains("and 10 older items"));
+}
+
+#[test]
+fn version_1_database_migrates() {
+    unsafe { std::env::set_var("TODO_NO_NOTIFY", "1") };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v1.db");
+    {
+        let c = Connection::open(&path).unwrap();
+        c.execute_batch(&format!("{SCHEMA} PRAGMA user_version = 1;")).unwrap();
+    }
+    let s = TodoStore::open(Some(path.to_string_lossy().into())).unwrap();
+    s.add_learning("works".into()).unwrap();
+    let v: i64 = s.conn.lock().unwrap().pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+    assert_eq!(v, 2);
+}
+
+#[test]
+fn reset_clears_learning() {
+    let (_d, s) = store();
+    let a = s.add_task(input("a", None), "Claude".into(), None).unwrap();
+    s.set_done(a.id, true, USER.into(), None, None).unwrap();
+    s.add_learning("note".into()).unwrap();
+    s.reset(false).unwrap();
+    assert!(s.list_feedback().unwrap().is_empty());
+    assert!(s.list_learnings().unwrap().is_empty());
+}
