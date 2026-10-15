@@ -3,8 +3,8 @@
 #   brew tap roylet-gs/todo-widget https://github.com/roylet-gs/todo-widget
 #   brew install --cask todo-widget
 cask "todo-widget" do
-  version "0.1.12"
-  sha256 "c8c167359057c3229d28e4eb32757fd619a5a4bf37e072cf938866d63877ba59"
+  version "0.1.13"
+  sha256 "ddaa15c14dc370ee739b4b1351c5e6e7033553916fd02561bd2a1677732e9587"
 
   url "https://github.com/roylet-gs/todo-widget/releases/download/v#{version}/TodoWidget-v#{version}.zip"
   name "Todo Widget"
