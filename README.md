@@ -29,12 +29,13 @@ You can also open **TodoWidget** from Spotlight (⌘ Space) or the Applications 
 
 **3. Follow the setup window** (it opens on first launch)
 
-1. **Connect:** add the `todo` MCP to the AI agent you use (one click for Claude Code or Claude Desktop, or copy
+1. **Theme:** pick one of the built-in color themes and light, dark or system appearance.
+2. **Connect:** add the `todo` MCP to the AI agent you use (one click for Claude Code or Claude Desktop, or copy
    the config for any other MCP client), then allow notifications. If you added it to Claude Desktop,
    restart Claude Desktop.
-2. **Discover sources:** copy the discovery prompt and paste it into a chat with your agent. It asks which of
+3. **Discover sources:** copy the discovery prompt and paste it into a chat with your agent. It asks which of
    your tools to check and what matters in each, then saves them. You'll see them appear in the setup window.
-3. **Schedule:** copy the schedule prompt and paste it into your agent's scheduler as a recurring task. By
+4. **Schedule:** copy the schedule prompt and paste it into your agent's scheduler as a recurring task. By
    default it runs every hour, Monday to Friday, 09:00–17:00 (adjustable).
 
 That's it. Your list lives in the small tab on the edge of your screen: click it to open the list, drag it to
@@ -43,6 +44,9 @@ move it to the other side. You can run setup again any time from Settings › Ge
 **Keyboard:** hold ⌃ and double-tap ⌘ in any app to show or hide the list (macOS asks for Accessibility access the first
 time). Then ↑ ↓ select a task, ↩ opens it, Space marks it done, ⌫ deletes it (⌘Z undoes), Esc goes back, and
 ? lists every shortcut. Change any of them in Settings › Keyboard.
+
+**Themes:** switch themes in Settings › Themes, or build your own there. Duplicate a theme, set its accent, background,
+text, priority and done colors for light and dark, and save.
 
 **Update:** the app tells you when a new version is out and can update itself (Settings › General), or run
 `brew update && brew upgrade --cask todo-widget`.
