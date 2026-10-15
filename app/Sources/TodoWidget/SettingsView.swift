@@ -2,7 +2,7 @@ import ServiceManagement
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, themes, keyboard, sources, prompt, schedule, history
+    case general, themes, keyboard, sources, prompt, schedule, learning, history
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var icon: String {
@@ -13,6 +13,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .sources: "tray.2"
         case .prompt: "text.quote"
         case .schedule: "clock"
+        case .learning: "lightbulb"
         case .history: "clock.arrow.circlepath"
         }
     }
@@ -41,6 +42,7 @@ struct SettingsView: View {
                     case .sources: SourcesPane(model: model)
                     case .prompt: PromptPane(model: model)
                     case .schedule: SchedulePane(model: model, prefs: prefs, runner: runner)
+                    case .learning: LearningPane(model: model)
                     case .history: HistoryPane(model: model)
                     }
                 }
@@ -486,6 +488,167 @@ struct SchedulePane: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Learning
+
+/// What agents have learned about which tasks you want, and the feedback the next run will learn from.
+struct LearningPane: View {
+    let model: AppModel
+    @State private var notes: [Learning] = []
+    @State private var feedback: [Feedback] = []
+    @State private var newNote = ""
+    @State private var confirmClear: ClearTarget?
+    @FocusState private var addFocused: Bool
+    @Environment(\.theme) private var theme
+
+    private enum ClearTarget: Identifiable {
+        case notes, feedback
+        var id: Self { self }
+    }
+
+    var body: some View {
+        PaneHeader(title: "Learning", subtitle: "Agents learn which tasks you want from the ones you complete and the ones you reject. At the end of each run they turn new feedback into the notes below and clear it. The notes go into every run's prompt.")
+
+        Card {
+            HStack(spacing: 10) {
+                Text("Notes").fontWeight(.semibold)
+                Text("\(notes.count) of 25").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Add note") { addFocused = true }.glassButton().controlSize(.small)
+                Button("Clear all", role: .destructive) { confirmClear = .notes }
+                    .buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(.red)
+                    .disabled(notes.isEmpty)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            if notes.isEmpty {
+                Divider()
+                Text("No notes yet. They appear after an agent's first run with feedback, or add your own.")
+                    .foregroundStyle(.secondary).padding(16)
+            }
+            ForEach(notes, id: \.id) { n in
+                Divider()
+                NoteRow(note: n, model: model)
+            }
+            Divider()
+            HStack(spacing: 8) {
+                Image(systemName: "plus").foregroundStyle(.secondary)
+                TextField("Add a note, e.g. Never add tasks from #random", text: $newNote)
+                    .textFieldStyle(.plain)
+                    .focused($addFocused)
+                    .onSubmit(addNote)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 11)
+        }
+
+        Card {
+            HStack(spacing: 10) {
+                Text("Waiting for the next run").fontWeight(.semibold)
+                Text(feedback.count == 1 ? "1 item" : "\(feedback.count) items").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Clear all", role: .destructive) { confirmClear = .feedback }
+                    .buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(.red)
+                    .disabled(feedback.isEmpty)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            if feedback.isEmpty {
+                Divider()
+                Text("Nothing new. Complete or reject tasks that agents add and they show up here until the next run learns from them.")
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(16)
+            }
+            ForEach(feedback, id: \.id) { f in
+                Divider()
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(f.kind == "good" ? "Completed" : "Rejected")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 76)
+                        .padding(.vertical, 3)
+                        .background((f.kind == "good" ? theme.done : Color.red).opacity(0.16), in: Capsule())
+                        .foregroundStyle(f.kind == "good" ? theme.done : Color.red)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(f.title).fontWeight(.semibold).lineLimit(1)
+                        Text([f.source, "added by \(f.addedBy)"].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if let r = f.reason { Text("“\(r)”").foregroundStyle(.secondary) }
+                    }
+                    Spacer(minLength: 0)
+                    Button { remove { try $0.deleteFeedback(id: f.id) } } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .help("Remove: the next run won't learn from it")
+                        .accessibilityLabel("Remove feedback")
+                }
+                .padding(.horizontal, 16).padding(.vertical, 11)
+            }
+        }
+        .onAppear(perform: load)
+        .onChange(of: model.revision) { _, _ in load() }
+        .confirmationDialog(confirmClear == .notes ? "Clear all notes?" : "Clear all feedback?", isPresented: Binding(
+            get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
+            Button("Clear all", role: .destructive) {
+                let target = confirmClear
+                remove { target == .notes ? try $0.clearLearnings() : try $0.clearFeedback() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(confirmClear == .notes
+                 ? "Agents start learning your preferences from scratch."
+                 : "The next run won't learn from these completed and rejected tasks.")
+        }
+    }
+
+    private func load() {
+        notes = (try? model.store.listLearnings()) ?? []
+        feedback = (try? model.store.listFeedback()) ?? []
+    }
+
+    private func addNote() {
+        let t = newNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        remove { _ = try $0.addLearning(text: t) }
+        newNote = ""
+    }
+
+    /// Run a store change, then refresh (the change notification also reloads the model).
+    private func remove(_ body: (TodoStore) throws -> Void) {
+        do { try body(model.store) } catch { model.showToast("\(error)", undoable: false) }
+        load()
+    }
+}
+
+/// One note, edited in place; saved on Return or when the field loses focus.
+private struct NoteRow: View {
+    let note: Learning
+    let model: AppModel
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                TextField("Note", text: $text, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                    .onSubmit(save)
+                    .onChange(of: focused) { _, f in if !f { save() } }
+                Text(note.author == "You" ? "Written by you · agents keep it" : "Learned by \(note.author) · \(clockTime(note.updatedAt))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Button { try? model.store.deleteLearning(id: note.id) } label: { Image(systemName: "trash") }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .accessibilityLabel("Delete note")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .onAppear { text = note.text }
+        .onChange(of: note.text) { _, t in if !focused { text = t } }
+    }
+
+    private func save() {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t != note.text else { return }
+        if t.isEmpty { text = note.text; return }
+        do { try model.store.updateLearning(id: note.id, text: t) } catch { text = note.text; model.showToast("\(error)", undoable: false) }
     }
 }
 

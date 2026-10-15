@@ -37,6 +37,12 @@ final class DrawerKeys {
     /// Run the action bound to `b`, if any. Returns false to let the key through (e.g. into a text field).
     @discardableResult
     func handle(_ b: KeyBinding) -> Bool {
+        // The reject panel owns the keyboard: Return rejects, Esc cancels, other keys type the reason.
+        if model.rejecting != nil {
+            if b == KeyBinding("escape") { model.cancelReject(); return true }
+            if b == KeyBinding("return") { model.confirmReject(); return true }
+            return !typing
+        }
         if typing {
             // Plain keys belong to the text field. Quick add is the list's only field: there Esc
             // collapses the drawer (keeping the draft) and ↓ goes to the first task. Elsewhere Esc leaves the field.
@@ -91,6 +97,9 @@ final class DrawerKeys {
             let next = m.neighbor(of: t.id)
             m.delete(t)
             m.highlightedId = next
+        case .reject:
+            guard let t = m.selected ?? m.highlighted, t.isAgentTask else { return false }
+            m.beginReject(t)
         case .edit: m.wantsEdit = true
         case .save: m.wantsSave = true
         case .moveUp, .moveDown:

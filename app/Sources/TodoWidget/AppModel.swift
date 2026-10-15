@@ -34,6 +34,10 @@ final class AppModel {
     var doneExpanded = false
     /// The keyboard shortcuts overlay.
     var showShortcuts = false
+    /// The agent task being rejected; shows the reject panel over the drawer.
+    var rejecting: TodoTask?
+    /// The optional reason typed in the reject panel.
+    var rejectReason = ""
     /// Requests from the keyboard handler to views that own the focus and edit state.
     var wantsQuickAdd = false
     /// Unsubmitted quick-add text; survives opening a task and closing the drawer.
@@ -151,6 +155,29 @@ final class AppModel {
         perform("Deleted “\(task.title)”") { _ = try $0.deleteTask(id: task.id, actor: "You", runId: nil, reason: nil) }
     }
 
+    /// Show the reject panel for a task an agent added.
+    func beginReject(_ task: TodoTask) {
+        guard task.isAgentTask else { return }
+        showShortcuts = false
+        rejectReason = ""
+        rejecting = task
+    }
+
+    func cancelReject() {
+        rejecting = nil
+        rejectReason = ""
+    }
+
+    /// Remove the task and record why, so agents learn not to add tasks like it.
+    func confirmReject() {
+        guard let task = rejecting else { return }
+        let reason = rejectReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        cancelReject()
+        if selectedId == task.id { selectedId = nil }
+        if highlightedId == task.id { highlightedId = neighbor(of: task.id) }
+        perform("Rejected “\(task.title)”") { _ = try $0.rejectTask(id: task.id, reason: reason.isEmpty ? nil : reason) }
+    }
+
     func update(_ task: TodoTask, patch: TaskPatch) {
         perform("Edited “\(task.title)”") { _ = try $0.updateTask(id: task.id, patch: patch, actor: "You", runId: nil) }
     }
@@ -249,6 +276,9 @@ final class AppModel {
 
 extension TodoTask {
     var isDone: Bool { status == "done" }
+
+    /// Added by an agent rather than the user; only these can be rejected.
+    var isAgentTask: Bool { addedBy != "You" }
 
     var meta: String {
         [source, due].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")

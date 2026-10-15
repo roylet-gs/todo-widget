@@ -373,7 +373,7 @@ def click_outside_closes_unless_pinned(app: App):
 
 @spec
 def settings_tabs(app: App):
-    for tab in ["general", "themes", "keyboard", "sources", "prompt", "schedule", "history"]:
+    for tab in ["general", "themes", "keyboard", "sources", "prompt", "schedule", "learning", "history"]:
         s = app.cmd("settings", tab=tab)
         expect(s["settingsOpen"], f"settings did not open on {tab}")
         app.snapshot("settings", tab)
@@ -690,6 +690,77 @@ def sources_managed_by_agent(app: App):
     app.cmd("close_setup")
     app.cmd("settings", tab="sources")
     app.snapshot("settings", "sources")
+
+
+@spec
+def learning_from_feedback(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    app.cmd("open_drawer")
+    # Completing an agent's task is positive feedback; your own tasks don't count.
+    app.cmd("toggle_done", title="Prep notes for Thursday")
+    app.cmd("toggle_done", title="Update the estimate on CDI-88")
+    s = app.wait_state(lambda s: len(s["done"]) == 2, "tasks not marked done")
+    expect([(f["kind"], f["title"]) for f in s["feedback"]] == [("good", "Prep notes for Thursday customer call")],
+           f"feedback after completing: {s['feedback']}")
+
+    # Only agents' tasks can be rejected.
+    s = app.cmd("begin_reject", title="Update the estimate")
+    expect(s["rejecting"] is None, f"the user's own task opened the reject panel: {s['rejecting']}")
+
+    # The reject panel, filled in; Return rejects.
+    s = app.cmd("reject", title="Review PR #412", reason="Bot PRs don't need my review", confirm=False)
+    expect(s["rejecting"] == "Review PR #412: connections retry logic", f"reject panel: {s['rejecting']}")
+    app.settle()
+    app.snapshot("drawer", "reject-panel")
+    s = app.cmd("key", key="return")
+    expect(s["handled"], "return should confirm the reject")
+    s = app.wait_state(lambda s: "Review PR #412: connections retry logic" not in titles(s["open"]), "reject did not remove the task")
+    expect(s["rejecting"] is None and s["toast"] and s["toast"].startswith("Rejected"), f"after reject: {s['rejecting']} {s['toast']}")
+    rejected = [f for f in s["feedback"] if f["kind"] == "rejected"]
+    expect(rejected and rejected[0]["reason"] == "Bot PRs don't need my review" and rejected[0]["addedBy"] == "Claude Code",
+           f"rejected feedback: {s['feedback']}")
+    app.snapshot("drawer", "rejected")
+    p = s["runPrompt"]
+    expect('REJECTED: "Review PR #412: connections retry logic"' in p and "my reason: Bot PRs don't need my review" in p, f"run prompt: {p}")
+    expect('COMPLETED: "Prep notes for Thursday customer call"' in p, f"run prompt: {p}")
+
+    # Undo brings the task back and drops its feedback.
+    app.cmd("undo")
+    s = app.wait_state(lambda s: "Review PR #412: connections retry logic" in titles(s["open"]), "undo did not restore the task")
+    expect([f["kind"] for f in s["feedback"]] == ["good"], f"feedback after undo: {s['feedback']}")
+    app.cmd("redo")
+    app.wait_state(lambda s: len(s["feedback"]) == 2, "redo did not bring the rejection back")
+
+    # ⇧⌫ opens the panel on the highlighted agent task; Esc cancels.
+    s = to_list(app)
+    agent = next(t["title"] for t in s["open"] if t["addedBy"] != "You")
+    while app.state()["highlighted"] != agent:
+        s = app.cmd("key", key="down")
+    s = app.cmd("key", key="delete", modifiers=["shift"])
+    expect(s["handled"] and s["rejecting"] == agent, f"shift-delete: handled={s['handled']} rejecting={s['rejecting']}")
+    s = app.cmd("key", key="escape")
+    expect(s["handled"] and s["rejecting"] is None and agent in titles(s["open"]), f"esc should cancel: {s['rejecting']}")
+
+    # Your own note, then the Learning pane with feedback waiting.
+    app.cmd("add_learning", text="Never add tasks from #random")
+    app.cmd("settings", tab="learning")
+    app.settle()
+    app.snapshot("settings", "learning-pending")
+
+    # The next run folds the feedback into notes, which clears it.
+    m = Mcp(app.env, "Claude Code")
+    prompt = m.call("get_instructions", agent="Claude Code")
+    expect("- Never add tasks from #random (written by me)" in prompt, f"user note missing from prompt: {prompt}")
+    ids = [int(line.split()[0][1:]) for line in prompt.splitlines() if line.strip().startswith("#")]
+    expect(len(ids) == 2, f"feedback ids in prompt: {ids}")
+    m.call("save_learnings", notes=["Never add tasks from #random", "Skip review requests on bot PRs",
+                                    "Prep for external customer calls is wanted"], processed_feedback_ids=ids)
+    m.close()
+    s = app.wait_state(lambda s: s["feedback"] == [] and len(s["learnings"]) == 3, "notes not saved or feedback not cleared", timeout=5)
+    expect([l["author"] for l in s["learnings"]] == ["You", "Claude Code", "Claude Code"], f"note authors: {s['learnings']}")
+    app.settle()
+    app.snapshot("settings", "learning-notes")
+    app.cmd("close_settings")
 
 
 @spec
