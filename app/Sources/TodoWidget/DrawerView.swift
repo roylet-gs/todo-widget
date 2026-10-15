@@ -1,15 +1,5 @@
 import SwiftUI
 
-enum Palette {
-    static func priority(_ p: UInt8) -> Color {
-        switch p {
-        case 1: .orange
-        case 2: .accentColor
-        default: .secondary
-        }
-    }
-}
-
 // MARK: - Collapsed tab
 
 struct EdgeTabView: View {
@@ -17,6 +7,7 @@ struct EdgeTabView: View {
     let prefs: Preferences
     let controller: DrawerController
     @State private var hovering = false
+    @Environment(\.theme) private var theme
 
     var body: some View {
         let right = prefs.edge == .right
@@ -33,10 +24,10 @@ struct EdgeTabView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 22, height: 22)
-                    .background(Circle().fill(model.unreadCount > 0 ? Color.accentColor : Color.secondary))
+                    .background(Circle().fill(model.unreadCount > 0 ? theme.accent : Color.secondary))
                 VStack(spacing: 4) {
                     ForEach(model.open.prefix(3), id: \.id) { t in
-                        Capsule().fill(Palette.priority(t.priority))
+                        Capsule().fill(theme.priority(t.priority))
                             .frame(width: 14, height: 3)
                             .opacity(t.unread ? 1 : 0.45)
                     }
@@ -122,6 +113,7 @@ struct DrawerView: View {
 
 /// Every binding, grouped, over the drawer. Opened with ? (by default) or the footer link.
 struct ShortcutsSheet: View {
+    @Environment(\.theme) private var theme
     let model: AppModel
     let prefs: Preferences
 
@@ -162,7 +154,13 @@ struct ShortcutsSheet: View {
             .padding(.top, 8)
         }
         .padding(16)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(E2E.flatGlass ? 1 : 0.92), in: .rect(cornerRadius: 20))
+        .background {
+            ZStack {
+                Color(nsColor: .windowBackgroundColor).opacity(E2E.flatGlass ? 1 : 0.92)
+                theme.background?.opacity(E2E.flatGlass ? 1 : 0.5)
+            }
+            .clipShape(.rect(cornerRadius: 20))
+        }
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
         .padding(14)
     }
@@ -173,6 +171,7 @@ struct TaskListView: View {
     let prefs: Preferences
     let updater: Updater
     let controller: DrawerController
+    @Environment(\.theme) private var theme
 
     @State private var newTitle = ""
     @State private var runsExpanded = false
@@ -397,7 +396,7 @@ struct TaskListView: View {
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .liquidGlass(.regular.tint(.accentColor.opacity(0.18)), in: .rect(cornerRadius: 16))
+        .liquidGlass(.regular, tint: theme.accent.opacity(0.18), in: .rect(cornerRadius: 16))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
@@ -437,7 +436,7 @@ struct TaskListView: View {
         })
         .opacity(dragging == t.id ? 0.35 : 1)
         .overlay(alignment: movingDown ? .bottom : .top) {
-            if isTarget { Capsule().fill(Color.accentColor).frame(height: 3).padding(.horizontal, 6) }
+            if isTarget { Capsule().fill(theme.accent).frame(height: 3).padding(.horizontal, 6) }
         }
         .onHover { if $0 { model.hoverHighlight(t.id) } }
         .onDrag {
@@ -525,6 +524,7 @@ struct TaskRow: View {
     let onToggle: () -> Void
     let onOpen: () -> Void
     @State private var hover = false
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(spacing: 9) {
@@ -538,8 +538,8 @@ struct TaskRow: View {
                     Circle().strokeBorder(Color.secondary.opacity(task.isDone ? 0.35 : 0.6), lineWidth: 1.5)
                     if task.isDone {
                         // Muted so completed rows recede instead of drawing the eye.
-                        Circle().fill(Color.green.opacity(0.32))
-                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.primary.opacity(0.6))
+                        Circle().fill(theme.done.opacity(0.32))
+                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.primary.opacity(0.6))
                     }
                 }
                 .frame(width: 20, height: 20)
@@ -549,7 +549,7 @@ struct TaskRow: View {
             .accessibilityLabel(task.isDone ? "Mark not done" : "Mark done")
             .keyHelp(prefs, task.isDone ? "Mark not done" : "Mark done", .toggleDone)
             if !task.isDone {
-                Capsule().fill(Palette.priority(task.priority)).frame(width: 4, height: 26).accessibilityHidden(true)
+                Capsule().fill(theme.priority(task.priority)).frame(width: 4, height: 26).accessibilityHidden(true)
             }
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -571,11 +571,11 @@ struct TaskRow: View {
                 Text(chip)
                     .font(.system(size: 10, weight: .semibold))
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(chip == "new" ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.15), in: Capsule())
-                    .foregroundStyle(chip == "new" ? Color.accentColor : .secondary)
+                    .background(chip == "new" ? theme.accent.opacity(0.18) : Color.secondary.opacity(0.15), in: Capsule())
+                    .foregroundStyle(chip == "new" ? theme.accent : .secondary)
             }
             if task.unread && !task.isDone {
-                Circle().fill(Color.accentColor).frame(width: 8, height: 8).accessibilityLabel("Unread")
+                Circle().fill(theme.accent).frame(width: 8, height: 8).accessibilityLabel("Unread")
             }
         }
         .padding(.leading, 4).padding(.trailing, 12).padding(.vertical, 8)
@@ -590,7 +590,7 @@ struct TaskRow: View {
         .overlay {
             // The keyboard cursor.
             if highlighted {
-                RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 14).strokeBorder(theme.accent.opacity(0.75), lineWidth: 1.5)
             }
         }
         .onHover { hover = $0 }

@@ -363,7 +363,7 @@ def click_outside_closes_unless_pinned(app: App):
 
 @spec
 def settings_tabs(app: App):
-    for tab in ["general", "keyboard", "sources", "prompt", "schedule", "history"]:
+    for tab in ["general", "themes", "keyboard", "sources", "prompt", "schedule", "history"]:
         s = app.cmd("settings", tab=tab)
         expect(s["settingsOpen"], f"settings did not open on {tab}")
         app.snapshot("settings", tab)
@@ -555,8 +555,54 @@ def update_failure(app: App):
 
 
 @spec
+def theme_presets(app: App):
+    s = app.cmd("state")
+    presets = s["themes"]
+    expect(len(presets) >= 8, f"expected at least 8 preset themes, got {presets}")
+    app.cmd("open_drawer")
+    app.wait_state(lambda s: s["drawerOpen"], "drawer did not open")
+    for t in presets:
+        for appearance in ["light", "dark"]:
+            app.cmd("set_pref", key="appearance", value=appearance)
+            s = app.cmd("set_pref", key="theme", value=t)
+            expect(s["theme"] == t, f"theme did not switch to {t}")
+            app.snapshot("drawer", f"{t}-{appearance}")
+    # A theme made for dark switches the appearance when picked.
+    app.cmd("set_pref", key="appearance", value="light")
+    s = app.cmd("set_pref", key="theme", value="midnight")
+    expect(s["appearance"] == "dark", f"midnight should switch to dark, got {s['appearance']}")
+    app.cmd("set_pref", key="appearance", value="system")
+    s = app.cmd("set_pref", key="theme", value="default")
+    expect(s["theme"] == "default", "could not return to the default theme")
+
+
+@spec
+def theme_builder(app: App):
+    s = app.cmd("settings", tab="themes")
+    expect(s["settingsOpen"], "settings did not open on themes")
+    app.snapshot("settings", "themes-presets")
+    palette = {"accent": "#7A3EC8", "background": "#F1E9FB", "text": "#24123D", "priority": "#D2491F", "done": "#4C9F70"}
+    dark = {"accent": "#A57BF0", "background": "#1C1428", "text": "#EDE4FA", "priority": "#FF8A5C", "done": "#5CC08A"}
+    theme = {"id": "custom-e2e", "name": "Lavender", "light": palette, "dark": dark}
+    s = app.cmd("save_theme", theme=theme)
+    expect(s["theme"] == "custom-e2e", f"custom theme not selected: {s['theme']}")
+    expect(s["customThemes"] == ["custom-e2e"], f"custom theme not saved: {s['customThemes']}")
+    # Reopen so the pane picks up the selected custom theme in the builder.
+    app.cmd("set_pref", key="appearance", value="light")
+    app.cmd("settings", tab="themes")
+    app.snapshot("settings", "themes-builder")
+    app.cmd("close_settings")
+    app.cmd("open_drawer")
+    app.wait_state(lambda s: s["drawerOpen"], "drawer did not open")
+    app.snapshot("drawer", "custom-theme")
+    s = app.cmd("delete_theme", id="custom-e2e")
+    expect(s["customThemes"] == [], "custom theme not deleted")
+    expect(s["theme"] == "default", f"deleting the active theme should fall back to default, got {s['theme']}")
+
+
+@spec
 def setup_flow(app: App):
-    for step, label in enumerate(["welcome", "connect", "sources", "schedule", "done"]):
+    for step, label in enumerate(["welcome", "theme", "connect", "sources", "schedule", "done"]):
         s = app.cmd("setup", step=step)
         expect(s["setupOpen"], "setup window did not open")
         app.snapshot("setup", f"{step}-{label}")
@@ -569,7 +615,7 @@ def sources_managed_by_agent(app: App):
     for s in app.state()["sources"]:
         subprocess.run([str(TODO), "sources", "rm", s["name"]], env=app.env, check=True, capture_output=True)
     app.wait_state(lambda s: s["sources"] == [], "sources not cleared")
-    app.cmd("setup", step=2)
+    app.cmd("setup", step=3)
     app.snapshot("setup", "waiting-for-agent")
 
     m = Mcp(app.env, "Discovery Bot")

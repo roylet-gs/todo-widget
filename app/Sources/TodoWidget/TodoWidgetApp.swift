@@ -52,7 +52,7 @@ final class AppServices {
             w.center()
             settingsWindow = w
         }
-        settingsWindow?.contentView = NSHostingView(rootView: SettingsView(model: model, prefs: prefs, runner: runner, tab: tab))
+        settingsWindow?.contentView = NSHostingView(rootView: SettingsView(model: model, prefs: prefs, runner: runner, tab: tab).themed(prefs))
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
@@ -74,7 +74,7 @@ final class AppServices {
         w.contentView = NSHostingView(rootView: SetupView(model: model, prefs: prefs, onFinish: { [weak self] in
             self?.closeSetup()
             self?.drawer.open()
-        }, step: SetupView.Step(rawValue: step) ?? .welcome))
+        }, step: SetupView.Step(rawValue: step) ?? .welcome).themed(prefs))
         w.center()
         setupWindow = w
         NSApp.activate()

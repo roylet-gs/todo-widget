@@ -49,8 +49,8 @@ final class DrawerController {
         self.prefs = prefs
         tabPanel = FloatingPanel(contentRect: NSRect(origin: .zero, size: Self.tabSize))
         drawerPanel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: Self.defaultDrawerWidth, height: 600))
-        tabPanel.contentView = NSHostingView(rootView: EdgeTabView(model: model, prefs: prefs, controller: self))
-        drawerPanel.contentView = NSHostingView(rootView: DrawerView(model: model, prefs: prefs, updater: updater, controller: self))
+        tabPanel.contentView = NSHostingView(rootView: EdgeTabView(model: model, prefs: prefs, controller: self).themed(prefs))
+        drawerPanel.contentView = NSHostingView(rootView: DrawerView(model: model, prefs: prefs, updater: updater, controller: self).themed(prefs))
         applyPrefs()
         tabPanel.orderFrontRegardless()
         observePrefs()
