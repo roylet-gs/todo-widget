@@ -9,10 +9,11 @@ struct SetupView: View {
     let onFinish: () -> Void
 
     enum Step: Int, CaseIterable {
-        case welcome, connect, sources, schedule, done
+        case welcome, theme, connect, sources, schedule, done
         var title: String {
             switch self {
             case .welcome: "Welcome"
+            case .theme: "Theme"
             case .connect: "Connect"
             case .sources: "Sources"
             case .schedule: "Schedule"
@@ -22,6 +23,7 @@ struct SetupView: View {
     }
 
     @State var step: Step = .welcome
+    @Environment(\.theme) private var theme
 
     // connect step
     @State private var codeStatus: String?
@@ -47,13 +49,14 @@ struct SetupView: View {
         }
         .frame(width: 720, height: 640)
         .e2eOpaque()
+        .themedWindowBackground()
     }
 
     private var progress: some View {
         HStack(spacing: 6) {
             ForEach(Step.allCases, id: \.self) { s in
                 Capsule()
-                    .fill(s.rawValue <= step.rawValue ? Color.accentColor : Color.secondary.opacity(0.25))
+                    .fill(s.rawValue <= step.rawValue ? theme.accent : Color.secondary.opacity(0.25))
                     .frame(height: 4)
             }
         }
@@ -65,6 +68,7 @@ struct SetupView: View {
     @ViewBuilder private var content: some View {
         switch step {
         case .welcome: welcome
+        case .theme: themeStep
         case .connect: connect
         case .sources: sources
         case .schedule: schedule
@@ -85,6 +89,23 @@ struct SetupView: View {
                 bullet("arrow.uturn.backward", "Every change shows who made it, and you can undo any of them.")
             }
             Text("Setup takes a few minutes. You can run it again from Settings › General.").foregroundStyle(.secondary)
+        }
+    }
+
+    private var themeStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            header("Pick a theme", "Choose the colors for your drawer. You can change it, or build your own, in Settings › Themes.")
+            ThemePicker(prefs: prefs)
+            HStack {
+                Text("Appearance").fontWeight(.semibold)
+                Spacer()
+                Picker("", selection: $prefs.appearance) {
+                    ForEach(Appearance.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented).frame(width: 240).labelsHidden()
+            }
+            .padding(14)
+            .liquidGlass(in: .rect(cornerRadius: 16))
         }
     }
 
@@ -267,7 +288,7 @@ struct SetupView: View {
     private func row(_ name: String, _ detail: String, status: String?, ok: Bool, action: String, perform: @escaping () -> Void) -> some View {
         HStack(alignment: .center, spacing: 14) {
             Image(systemName: ok ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(ok ? Color.green : Color.secondary)
+                .foregroundStyle(ok ? theme.done : Color.secondary)
                 .accessibilityLabel(ok ? "Done" : "Not done")
             VStack(alignment: .leading, spacing: 3) {
                 Text(name).fontWeight(.semibold)

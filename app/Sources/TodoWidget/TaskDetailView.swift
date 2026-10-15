@@ -4,6 +4,7 @@ struct TaskDetailView: View {
     let model: AppModel
     let prefs: Preferences
     let controller: DrawerController
+    @Environment(\.theme) private var theme
     let task: TodoTask
 
     @State private var editing = false
@@ -115,7 +116,7 @@ struct TaskDetailView: View {
     }
 
     private var chips: [(String, Color?)] {
-        var c: [(String, Color?)] = [("P\(task.priority)", Palette.priority(task.priority))]
+        var c: [(String, Color?)] = [("P\(task.priority)", theme.priority(task.priority))]
         if let s = task.source { c.append((s, nil)) }
         if let d = task.due { c.append(("Due \(d)", nil)) }
         c.append(("Added by \(task.addedBy)", nil))
@@ -207,7 +208,7 @@ struct FlowChips: View {
                 Text(item.0)
                     .font(.caption2.weight(item.1 == nil ? .regular : .semibold))
                     .padding(.horizontal, 9).padding(.vertical, 3)
-                    .foregroundStyle(item.1 == nil ? Color.primary : Color.white)
+                    .foregroundStyle(item.1 == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
                     .background(item.1 ?? Color.secondary.opacity(0.15), in: Capsule())
             }
         }

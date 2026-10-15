@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-enum Appearance: String, CaseIterable, Identifiable {
+enum Appearance: String, CaseIterable, Identifiable, Codable {
     case system, light, dark
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
@@ -89,6 +89,10 @@ final class Preferences {
     var keymap: Keymap { didSet { d.set(keymap.json, forKey: "keymap") } }
     var showKeyHints: Bool { didSet { d.set(showKeyHints, forKey: "showKeyHints") } }
 
+    // Theme
+    var themeID: String { didSet { d.set(themeID, forKey: "theme") } }
+    var customThemes: [Theme] { didSet { d.set(Self.encode(customThemes), forKey: "customThemes") } }
+
     static let defaultAllowedTools = [
         "mcp__todo__*",
         "mcp__claude_ai_Slack__slack_read_*", "mcp__claude_ai_Slack__slack_search_*",
@@ -111,12 +115,15 @@ final class Preferences {
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
         keymap = Keymap(json: d.string(forKey: "keymap"))
         showKeyHints = d.object(forKey: "showKeyHints") as? Bool ?? true
+        themeID = d.string(forKey: "theme") ?? Theme.default.id
+        customThemes = Self.decodeThemes(d.string(forKey: "customThemes"))
         apply()
     }
 
     static let keys = ["appearance", "windowLevel", "edge", "tabY", "tabDisplay", "clearDone", "pinned", "drawerWidth", "runnerEnabled",
                        "runnerModel",
-                       "runnerAllowedTools", "runnerLastRun", "runnerLog", "setupComplete", "keymap", "showKeyHints"]
+                       "runnerAllowedTools", "runnerLastRun", "runnerLog", "setupComplete", "keymap", "showKeyHints",
+                       "theme", "customThemes"]
 
     /// Forget every preference and return to defaults (used by Reset).
     func resetToDefaults() {
@@ -134,12 +141,43 @@ final class Preferences {
         runnerAllowedTools = d.string(forKey: "runnerAllowedTools") ?? Self.defaultAllowedTools
         keymap = Keymap(json: d.string(forKey: "keymap"))
         showKeyHints = d.object(forKey: "showKeyHints") as? Bool ?? true
+        themeID = d.string(forKey: "theme") ?? Theme.default.id
+        customThemes = Self.decodeThemes(d.string(forKey: "customThemes"))
         apply()
     }
 
     var setupComplete: Bool {
         get { d.bool(forKey: "setupComplete") }
         set { d.set(newValue, forKey: "setupComplete") }
+    }
+
+    // MARK: themes
+
+    var allThemes: [Theme] { Theme.presets + customThemes }
+    var theme: Theme { allThemes.first { $0.id == themeID } ?? .default }
+
+    /// Switch theme; a theme made for light or dark also switches the appearance.
+    func selectTheme(_ t: Theme) {
+        themeID = t.id
+        if let a = t.appearance { appearance = a }
+    }
+
+    func saveCustomTheme(_ t: Theme) {
+        guard !t.isBuiltIn else { return }
+        if let i = customThemes.firstIndex(where: { $0.id == t.id }) { customThemes[i] = t } else { customThemes.append(t) }
+    }
+
+    func deleteCustomTheme(id: String) {
+        customThemes.removeAll { $0.id == id }
+        if themeID == id { themeID = Theme.default.id }
+    }
+
+    private static func encode(_ t: [Theme]) -> String {
+        (try? JSONEncoder().encode(t)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+    }
+
+    private static func decodeThemes(_ json: String?) -> [Theme] {
+        json.flatMap { try? JSONDecoder().decode([Theme].self, from: Data($0.utf8)) } ?? []
     }
 
     func apply() {

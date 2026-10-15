@@ -2,12 +2,13 @@ import ServiceManagement
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, keyboard, sources, prompt, schedule, history
+    case general, themes, keyboard, sources, prompt, schedule, history
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var icon: String {
         switch self {
         case .general: "gearshape"
+        case .themes: "paintpalette"
         case .keyboard: "keyboard"
         case .sources: "tray.2"
         case .prompt: "text.quote"
@@ -35,6 +36,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     switch tab {
                     case .general: GeneralPane(model: model, prefs: prefs)
+                    case .themes: ThemesPane(prefs: prefs)
                     case .keyboard: KeyboardPane(prefs: prefs)
                     case .sources: SourcesPane(model: model)
                     case .prompt: PromptPane(model: model)
@@ -47,6 +49,7 @@ struct SettingsView: View {
             }
             .navigationTitle(tab.title)
             .e2eOpaque()
+            .themedWindowBackground()
         }
         .frame(minWidth: 820, minHeight: 600)
         .e2eOpaque()
@@ -100,11 +103,12 @@ struct GeneralPane: View {
     @State private var loginItem = LoginItem.isEnabled
     @State private var loginMessage: String?
     @State private var confirmReset = false
+    @Environment(\.theme) private var theme
 
     var body: some View {
         PaneHeader(title: "General", subtitle: "How the drawer looks and behaves.")
         Card {
-            CardRow(title: "Appearance", detail: "Applies to the drawer, the tab and this window.") {
+            CardRow(title: "Appearance", detail: "Applies to the drawer, the tab and this window. Colors are in Themes.") {
                 Picker("", selection: $prefs.appearance) {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0) }
                 }
@@ -124,8 +128,8 @@ struct GeneralPane: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
                             .padding(12)
-                            .background(prefs.windowLevel == l ? Color.accentColor.opacity(0.14) : Color.clear, in: .rect(cornerRadius: 14))
-                            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(prefs.windowLevel == l ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: 1.5))
+                            .background(prefs.windowLevel == l ? theme.accent.opacity(0.14) : Color.clear, in: .rect(cornerRadius: 14))
+                            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(prefs.windowLevel == l ? theme.accent : Color.secondary.opacity(0.25), lineWidth: 1.5))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -489,6 +493,7 @@ struct SchedulePane: View {
 
 struct HistoryPane: View {
     let model: AppModel
+    @Environment(\.theme) private var theme
     @State private var groups: [ChangeGroup] = []
 
     var body: some View {
@@ -499,7 +504,7 @@ struct HistoryPane: View {
                     Text(g.kind == "user" ? "You" : g.actor)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 9).padding(.vertical, 3)
-                        .background(g.kind == "run" ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.15), in: Capsule())
+                        .background(g.kind == "run" ? theme.accent.opacity(0.16) : Color.secondary.opacity(0.15), in: Capsule())
                     Text(clockTime(g.createdAt)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     Text(g.displayLabel).lineLimit(1)
                     Spacer()

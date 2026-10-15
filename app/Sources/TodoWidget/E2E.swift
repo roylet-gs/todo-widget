@@ -31,25 +31,14 @@ var AppDefaults: UserDefaults { E2E.defaults }
 // MARK: - Glass that degrades to solid fills in e2e mode
 
 extension View {
-    @ViewBuilder
-    func liquidGlass<S: Shape>(_ glass: Glass = .regular, in shape: S) -> some View {
-        if E2E.flatGlass {
-            self
-                .background(shape.fill(Color(nsColor: .windowBackgroundColor)))
-                .overlay(shape.stroke(Color(nsColor: .separatorColor), lineWidth: 1))
-        } else {
-            self.glassEffect(glass, in: shape)
-        }
+    /// Liquid Glass tinted with the theme's background (or `tint`, if given).
+    func liquidGlass<S: Shape>(_ glass: Glass = .regular, tint: Color? = nil, in shape: S) -> some View {
+        modifier(ThemedGlass(glass: glass, tint: tint, shape: shape))
     }
 
     /// Window and sidebar backgrounds are materials that offscreen snapshots don't draw.
-    @ViewBuilder
     func e2eOpaque(_ color: NSColor = .windowBackgroundColor) -> some View {
-        if E2E.flatGlass {
-            self.scrollContentBackground(.hidden).background(Color(nsColor: color))
-        } else {
-            self
-        }
+        modifier(E2EOpaque(color: color))
     }
 
     @ViewBuilder
@@ -59,6 +48,48 @@ extension View {
         case (true, false): self.buttonStyle(.bordered)
         case (false, true): self.buttonStyle(.glassProminent)
         case (false, false): self.buttonStyle(.glass)
+        }
+    }
+}
+
+private struct ThemedGlass<S: Shape>: ViewModifier {
+    let glass: Glass
+    let tint: Color?
+    let shape: S
+    @Environment(\.theme) private var theme
+
+    func body(content: Content) -> some View {
+        let tint = tint ?? theme.background?.opacity(Theme.glassTint)
+        if E2E.flatGlass {
+            content
+                .background {
+                    ZStack {
+                        shape.fill(Color(nsColor: .windowBackgroundColor))
+                        if let bg = theme.background { shape.fill(bg) }
+                        if let t = self.tint { shape.fill(t) }
+                    }
+                }
+                .overlay(shape.stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+        } else {
+            content.glassEffect(tint.map { glass.tint($0) } ?? glass, in: shape)
+        }
+    }
+}
+
+private struct E2EOpaque: ViewModifier {
+    let color: NSColor
+    @Environment(\.theme) private var theme
+
+    func body(content: Content) -> some View {
+        if E2E.flatGlass {
+            content.scrollContentBackground(.hidden).background {
+                ZStack {
+                    Color(nsColor: color)
+                    theme.background
+                }
+            }
+        } else {
+            content
         }
     }
 }
@@ -167,6 +198,13 @@ final class E2EServer {
             s.model.reload()
         case "set_pref":
             try setPref(cmd["key"] as? String ?? "", cmd["value"])
+        case "save_theme":
+            let data = try JSONSerialization.data(withJSONObject: cmd["theme"] ?? [:])
+            let t = try JSONDecoder().decode(Theme.self, from: data)
+            s.prefs.saveCustomTheme(t)
+            if cmd["select"] as? Bool ?? true { s.prefs.selectTheme(t) }
+        case "delete_theme":
+            s.prefs.deleteCustomTheme(id: cmd["id"] as? String ?? "")
         case "settings":
             s.showSettings(tab: SettingsTab(rawValue: cmd["tab"] as? String ?? "general") ?? .general)
         case "close_settings":
@@ -258,6 +296,9 @@ final class E2EServer {
         case "runnerEnabled": p.runnerEnabled = value as? Bool ?? false
         case "showKeyHints": p.showKeyHints = value as? Bool ?? true
         case "drawerWidth": p.drawerWidth = value as? Double ?? 400
+        case "theme":
+            guard let t = p.allThemes.first(where: { $0.id == v }) else { throw Failure(description: "unknown theme \(v)") }
+            p.selectTheme(t)
         default: throw Failure(description: "unknown pref \(key)")
         }
     }
@@ -302,6 +343,9 @@ final class E2EServer {
             "screen": rect(s.drawer.screenVisibleFrame),
             "edge": s.prefs.edge.rawValue,
             "appearance": s.prefs.appearance.rawValue,
+            "theme": s.prefs.themeID,
+            "themes": s.prefs.allThemes.map(\.id),
+            "customThemes": s.prefs.customThemes.map(\.id),
             "pinned": s.prefs.pinned,
             "drawerWidth": s.prefs.drawerWidth,
             "settingsOpen": s.isSettingsOpen,
