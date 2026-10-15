@@ -59,7 +59,13 @@ the `todo` entry from your agent's MCP settings too.
 The app is agent-agnostic: agents connect to the local `todo mcp` command, pass their own name to `start_run` /
 `get_instructions` (shown next to their changes; nothing is registered per agent), manage your sources with
 `save_source` / `remove_source`, and update the list. Every scheduled run calls `get_instructions` first, so
-changes to sources and rules apply without touching the schedule. `todo prompt --discovery` and
+changes to sources and rules apply without touching the schedule.
+
+Agents also learn which tasks you want. Completing a task an agent added counts as a good example, and
+rejecting one (`todo reject <id> -r "why"`) counts as a bad one, with your optional reason. Each run's prompt
+carries these examples plus the agent's notes on your preferences. Before `finish_run` the agent folds the
+examples into the notes with `save_learnings`, which clears them, so the prompt stays small (at most 25 short
+notes). `todo prompt --discovery` and
 `todo prompt --setup` print the setup prompts. The app checks GitHub for new releases every 6 hours.
 
 ## Releases

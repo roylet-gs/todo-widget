@@ -35,6 +35,9 @@ of its windows to `e2e/tmp/<spec>--<label>.png`.
   `get_instructions`; that name is only stored as the actor on their changes. Only the MCP installers
   (`Integrations.swift`, setup's Connect step) know about specific tools.
 - Sources are managed by agents through the MCP (`save_source`, `remove_source`); the app shows them read-only.
+- Learning: when the user completes or rejects (`reject_task`) a task an agent added, the core stores it as feedback.
+  `render_prompt` appends notes plus pending feedback to every run prompt, custom templates included. Agents fold the
+  feedback into capped notes with `save_learnings`, which clears what they used.
 - Prompts live in `core/src/prompt.rs` (run, discovery, schedule); the schedule cadence comes from
   `get_schedule` / `set_schedule` in the core.
 

@@ -86,6 +86,13 @@ struct DrawerView: View {
             }
         }
         .animation(.snappy(duration: 0.18), value: model.showShortcuts)
+        .overlay {
+            if let task = model.rejecting {
+                RejectSheet(model: model, controller: controller, task: task)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            }
+        }
+        .animation(.snappy(duration: 0.18), value: model.rejecting?.id)
         .liquidGlass(.regular, in: .rect(cornerRadius: 26))
         .overlay(alignment: prefs.edge == .right ? .leading : .trailing) { resizeHandle }
         // Keys are handled by `DrawerKeys`; ⌘W isn't configurable, so it stays a plain shortcut.
@@ -163,6 +170,75 @@ struct ShortcutsSheet: View {
         }
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
         .padding(14)
+    }
+}
+
+/// Confirms rejecting an agent's task and asks, optionally, why. Return rejects, Esc cancels.
+struct RejectSheet: View {
+    @Environment(\.theme) private var theme
+    let model: AppModel
+    let controller: DrawerController
+    let task: TodoTask
+    @FocusState private var reasonFocused: Bool
+
+    static let quickReasons = ["Not mine to do", "Not actionable", "Already handled", "Too noisy"]
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(E2E.flatGlass ? 0.12 : 0.18)
+                .contentShape(Rectangle())
+                .onTapGesture { model.cancelReject() }
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Reject this task?").font(.system(size: 15, weight: .bold))
+                    Text(task.title).fontWeight(.semibold).lineLimit(1)
+                    Text("Added by \(task.addedBy)\(task.source.map { " from \($0)" } ?? "")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("It's removed from your list, and agents use your reason to stop adding tasks like it.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Text("Why?").font(.caption.weight(.semibold))
+                        Text("Optional").font(.caption).foregroundStyle(.tertiary)
+                    }
+                    TextField("e.g. Bot PRs don't need my review", text: Bindable(model).rejectReason)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($reasonFocused)
+                        .onSubmit { model.confirmReject() }
+                    FlowLayout(spacing: 6) {
+                        ForEach(Self.quickReasons, id: \.self) { r in
+                            Button(r) { model.rejectReason = r }
+                                .buttonStyle(.plain)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(model.rejectReason == r ? theme.accent.opacity(0.18) : Color.secondary.opacity(0.12), in: Capsule())
+                                .foregroundStyle(model.rejectReason == r ? theme.accent : .primary)
+                        }
+                    }
+                }
+                HStack(spacing: 8) {
+                    Text("Return to reject · Esc to cancel").font(.caption2).foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    Button("Cancel") { model.cancelReject() }.glassButton()
+                    Button("Reject", role: .destructive) { model.confirmReject() }.glassButton(prominent: true).tint(.red)
+                }
+            }
+            .padding(18)
+            .background {
+                ZStack {
+                    Color(nsColor: .windowBackgroundColor).opacity(E2E.flatGlass ? 1 : 0.95)
+                    theme.background?.opacity(E2E.flatGlass ? 1 : 0.5)
+                }
+                .clipShape(.rect(cornerRadius: 22))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+            .padding(14)
+        }
+        .onAppear {
+            controller.engage()
+            reasonFocused = true
+        }
     }
 }
 
@@ -465,6 +541,9 @@ struct TaskListView: View {
             Button("Move up") { model.nudge(t.id, by: -1) }.menuShortcut(prefs, .moveUp).disabled(index == 0)
             Button("Move down") { model.nudge(t.id, by: 1) }.menuShortcut(prefs, .moveDown)
             Divider()
+            if t.isAgentTask {
+                Button("Reject…", role: .destructive) { model.beginReject(t) }.menuShortcut(prefs, .reject)
+            }
             Button("Delete", role: .destructive) { model.delete(t) }.menuShortcut(prefs, .delete)
         }
     }

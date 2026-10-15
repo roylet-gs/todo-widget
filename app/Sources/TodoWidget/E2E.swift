@@ -179,6 +179,17 @@ final class E2EServer {
             s.model.select(nil)
         case "toggle_done":
             s.model.toggleDone(try task(cmd))
+        case "begin_reject":
+            s.model.beginReject(try task(cmd))
+        case "reject":
+            // The reject panel, as a user would fill it in; `confirm: false` leaves it open.
+            s.model.beginReject(try task(cmd))
+            s.model.rejectReason = cmd["reason"] as? String ?? ""
+            if cmd["confirm"] as? Bool ?? true { s.model.confirmReject() }
+        case "cancel_reject":
+            s.model.cancelReject()
+        case "add_learning":
+            _ = try s.model.store.addLearning(text: cmd["text"] as? String ?? "")
         case "move":
             s.model.move(try task(cmd).id, to: cmd["index"] as? Int ?? 0)
         case "add":
@@ -327,6 +338,10 @@ final class E2EServer {
             "recentRuns": m.recentRuns.map { ["actor": $0.actor, "stats": $0.statsText, "summary": $0.summary ?? ""] },
             "sources": m.sources.map { ["name": $0.name, "kind": $0.kind, "instructions": $0.instructions, "enabled": $0.enabled] },
             "schedulePrompt": (try? m.store.renderSetupPrompt()) ?? "",
+            "runPrompt": (try? m.store.renderPrompt()) ?? "",
+            "rejecting": m.rejecting?.title ?? NSNull(),
+            "feedback": ((try? m.store.listFeedback()) ?? []).map { ["kind": $0.kind, "title": $0.title, "reason": $0.reason ?? "", "addedBy": $0.addedBy] },
+            "learnings": ((try? m.store.listLearnings()) ?? []).map { ["text": $0.text, "author": $0.author] },
             "discoveryPrompt": m.store.renderDiscoveryPrompt(),
             "selected": m.selected?.title ?? NSNull(),
             "highlighted": m.highlighted?.title ?? NSNull(),

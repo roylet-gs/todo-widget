@@ -82,6 +82,17 @@ struct TaskDetailView: View {
                     }
                     .glassButton()
                     .keyHelp(prefs, editing ? "Save" : "Edit", editing ? .save : .edit)
+                    if task.isAgentTask && !task.isDone {
+                        Button { model.beginReject(task) } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "hand.thumbsdown")
+                                if prefs.showKeyHints { KeyCap(prefs.key(.reject).display) }
+                            }
+                        }
+                        .glassButton()
+                        .keyHelp(prefs, "Reject: agents stop adding tasks like this", .reject)
+                        .accessibilityLabel("Reject")
+                    }
                     Button(role: .destructive) { model.delete(task) } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "trash")

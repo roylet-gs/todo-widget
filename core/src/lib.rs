@@ -154,6 +154,44 @@ CREATE TABLE settings (
 );
 "#;
 
+/// Version 2: feedback on agent tasks and the learning notes agents curate from it.
+const SCHEMA_V2: &str = r#"
+CREATE TABLE feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL,
+  task_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  source TEXT,
+  source_from TEXT,
+  excerpt TEXT,
+  added_by TEXT NOT NULL,
+  reason TEXT,
+  task_created_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX feedback_task ON feedback(task_id);
+
+CREATE TABLE learnings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL,
+  author TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+"#;
+
+/// Caps on what an agent may save, so the notes stay small enough to send on every run.
+pub const MAX_LEARNINGS: usize = 25;
+pub const MAX_LEARNING_CHARS: usize = 300;
+const EXCERPT_CHARS: usize = 200;
+
+/// Feedback whose change is still in effect: a rejected task is still gone, a completed one still done.
+const LIVE_FEEDBACK: &str = "SELECT f.id, f.task_id, f.kind, f.title, f.source, f.source_from, f.excerpt, f.added_by, f.reason, f.task_created_at, f.created_at
+  FROM feedback f JOIN events e ON e.id = f.event_id LEFT JOIN tasks t ON t.id = f.task_id
+  WHERE e.undone = 0 AND (f.kind = 'rejected' OR t.status = 'done')
+  ORDER BY f.created_at DESC, f.id DESC";
+
 const TASK_COLS: &str = "id, title, rank, priority, due, status, summary, rationale, source, source_ref, source_url, excerpt, source_from, unread, last_move, added_by, updated_by, user_ranked_at, done_at, archived_at, created_at, updated_at";
 
 fn row_to_task(r: &Row) -> rusqlite::Result<TodoItem> {
@@ -273,6 +311,9 @@ impl TodoStore {
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version == 0 {
             conn.execute_batch(&format!("BEGIN; {SCHEMA} PRAGMA user_version = 1; COMMIT;"))?;
+        }
+        if version < 2 {
+            conn.execute_batch(&format!("BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"))?;
         }
         Ok(Arc::new(Self { conn: Mutex::new(conn), path }))
     }
@@ -424,6 +465,10 @@ impl TodoStore {
             }
             write_task(cx.c, &t)?;
             cx.log(if done { "done" } else { "reopen" }, &t.id, Some(&before), Some(&t), reason.as_deref())?;
+            // The user finishing an agent's task tells the next run it was worth adding.
+            if done && before.status != "done" && is_user(&cx.actor) && !is_user(&before.added_by) {
+                Self::insert_feedback(cx, &before, "good", None)?;
+            }
             Ok(t)
         }, |t| format!("{} “{}”", if t.status == "done" { "Completed" } else { "Reopened" }, t.title))
     }
@@ -436,6 +481,26 @@ impl TodoStore {
             cx.log("delete", &id, Some(&before), None, reason.as_deref())?;
             Ok(before)
         }, |t| format!("Deleted “{}”", t.title))
+    }
+
+    /// The user rejects a task an agent added: it is deleted (undoably) and recorded as feedback,
+    /// with the optional reason, for the next run to learn from.
+    pub fn reject_task(&self, id: String, reason: Option<String>) -> Result<TodoItem> {
+        let reason = reason.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
+        self.write(USER, None, |cx| {
+            let id = Self::resolve_in(cx.c, &id)?;
+            let before = read_task(cx.c, &id)?.ok_or(TodoError::NotFound(id.clone()))?;
+            if is_user(&before.added_by) {
+                return Err(TodoError::Invalid("only tasks added by an agent can be rejected".into()));
+            }
+            cx.c.execute("DELETE FROM tasks WHERE id = ?1", [&id])?;
+            cx.log("delete", &id, Some(&before), None, Some(&match &reason {
+                Some(r) => format!("Rejected: {r}"),
+                None => "Rejected".to_string(),
+            }))?;
+            Self::insert_feedback(cx, &before, "rejected", reason.as_deref())?;
+            Ok(before)
+        }, |t| format!("Rejected “{}”", t.title))
     }
 
     /// Agent ranking: `ordered_ids` go first in that order; unlisted open tasks keep their
@@ -626,7 +691,7 @@ impl TodoStore {
         let ids: Vec<String> = c
             .prepare(
                 "SELECT g.id FROM groups g WHERE EXISTS (SELECT 1 FROM events e WHERE e.group_id = g.id AND e.op != 'rerank')
-                 ORDER BY g.last_activity DESC LIMIT ?1",
+                 ORDER BY g.last_activity DESC, g.rowid DESC LIMIT ?1",
             )?
             .query_map([limit], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
@@ -727,7 +792,7 @@ impl TodoStore {
     pub fn reset(&self, erase_tasks: bool) -> Result<()> {
         let mut c = self.conn.lock().unwrap();
         let tx = c.transaction()?;
-        tx.execute_batch("DELETE FROM sources; DELETE FROM prompt_versions; DELETE FROM settings;")?;
+        tx.execute_batch("DELETE FROM sources; DELETE FROM prompt_versions; DELETE FROM settings; DELETE FROM feedback; DELETE FROM learnings;")?;
         if erase_tasks {
             tx.execute_batch("DELETE FROM events; DELETE FROM groups; DELETE FROM tasks;")?;
         }
@@ -802,6 +867,123 @@ impl TodoStore {
         Ok(())
     }
 
+    // ---------- learning ----------
+
+    /// Feedback not yet folded into the notes, newest first.
+    pub fn list_feedback(&self) -> Result<Vec<Feedback>> {
+        let c = self.conn.lock().unwrap();
+        Self::feedback_in(&c)
+    }
+
+    pub fn delete_feedback(&self, id: i64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute("DELETE FROM feedback WHERE id = ?1", [id])?;
+        drop(c);
+        notify::post_changed();
+        Ok(())
+    }
+
+    pub fn clear_feedback(&self) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute("DELETE FROM feedback", [])?;
+        drop(c);
+        notify::post_changed();
+        Ok(())
+    }
+
+    pub fn list_learnings(&self) -> Result<Vec<Learning>> {
+        let c = self.conn.lock().unwrap();
+        Self::learnings_in(&c)
+    }
+
+    /// An agent replaces the whole set of notes and drops the feedback it folded into them.
+    /// Notes whose text is unchanged keep their author, so the user's own notes stay marked as theirs.
+    pub fn save_learnings(&self, notes: Vec<String>, processed_feedback_ids: Vec<i64>, actor: String) -> Result<Vec<Learning>> {
+        let notes: Vec<String> = notes.into_iter().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect();
+        if notes.len() > MAX_LEARNINGS {
+            return Err(TodoError::Invalid(format!(
+                "{} notes is too many: merge them into at most {MAX_LEARNINGS} and save again",
+                notes.len()
+            )));
+        }
+        if let Some(long) = notes.iter().find(|n| n.chars().count() > MAX_LEARNING_CHARS) {
+            return Err(TodoError::Invalid(format!(
+                "notes must be at most {MAX_LEARNING_CHARS} characters; shorten: {long}"
+            )));
+        }
+        let actor = if actor.trim().is_empty() { "Agent".to_string() } else { actor };
+        let mut c = self.conn.lock().unwrap();
+        let tx = c.transaction()?;
+        let old = Self::learnings_in(&tx)?;
+        let now = now_ms();
+        tx.execute("DELETE FROM learnings", [])?;
+        for (i, text) in notes.iter().enumerate() {
+            let (author, updated_at) = match old.iter().find(|l| &l.text == text) {
+                Some(l) => (l.author.clone(), l.updated_at),
+                None => (actor.clone(), now),
+            };
+            tx.execute(
+                "INSERT INTO learnings (text, author, position, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params![text, author, i as i64, updated_at],
+            )?;
+        }
+        for id in &processed_feedback_ids {
+            tx.execute("DELETE FROM feedback WHERE id = ?1", [id])?;
+        }
+        let out = Self::learnings_in(&tx)?;
+        tx.commit()?;
+        drop(c);
+        notify::post_changed();
+        Ok(out)
+    }
+
+    /// The user adds a note at the end of the list.
+    pub fn add_learning(&self, text: String) -> Result<Learning> {
+        let text = Self::check_note(&text)?;
+        let c = self.conn.lock().unwrap();
+        let position: i64 = c.query_row("SELECT COALESCE(MAX(position), -1) + 1 FROM learnings", [], |r| r.get(0))?;
+        c.execute(
+            "INSERT INTO learnings (text, author, position, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            params![text, USER, position, now_ms()],
+        )?;
+        let id = c.last_insert_rowid();
+        let l = Self::learnings_in(&c)?.into_iter().find(|l| l.id == id).ok_or(TodoError::NotFound(id.to_string()))?;
+        drop(c);
+        notify::post_changed();
+        Ok(l)
+    }
+
+    /// The user edits a note; it becomes theirs.
+    pub fn update_learning(&self, id: i64, text: String) -> Result<()> {
+        let text = Self::check_note(&text)?;
+        let c = self.conn.lock().unwrap();
+        let n = c.execute(
+            "UPDATE learnings SET text = ?1, author = ?2, updated_at = ?3 WHERE id = ?4 AND text != ?1",
+            params![text, USER, now_ms(), id],
+        )?;
+        drop(c);
+        if n > 0 {
+            notify::post_changed();
+        }
+        Ok(())
+    }
+
+    pub fn delete_learning(&self, id: i64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute("DELETE FROM learnings WHERE id = ?1", [id])?;
+        drop(c);
+        notify::post_changed();
+        Ok(())
+    }
+
+    pub fn clear_learnings(&self) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute("DELETE FROM learnings", [])?;
+        drop(c);
+        notify::post_changed();
+        Ok(())
+    }
+
     // ---------- prompts & settings ----------
 
     pub fn get_prompt(&self) -> Result<String> {
@@ -833,8 +1015,9 @@ impl TodoStore {
         Ok(rows)
     }
 
-    /// The run prompt with `{{sources}}`, `{{last_run}}` and `{{now}}` filled in. Agent-agnostic:
-    /// the prompt itself asks the agent to pass its own name.
+    /// The run prompt with `{{sources}}`, `{{last_run}}` and `{{now}}` filled in, followed by the
+    /// learning notes, pending feedback and the learn step (appended so custom prompts get them too).
+    /// Agent-agnostic: the prompt itself asks the agent to pass its own name.
     pub fn render_prompt(&self) -> Result<String> {
         let template = self.get_prompt()?;
         let sources = prompt::render_sources(&self.list_sources()?);
@@ -843,7 +1026,9 @@ impl TodoStore {
             None => "the start of yesterday (first run)".into(),
         };
         let now = Local::now().format("%A %Y-%m-%d %H:%M").to_string();
-        Ok(prompt::fill(&template, &[("sources", &sources), ("last_run", &last_run), ("now", &now)]))
+        let filled = prompt::fill(&template, &[("sources", &sources), ("last_run", &last_run), ("now", &now)]);
+        let learning = prompt::render_learning(&self.list_learnings()?, &self.list_feedback()?);
+        Ok(format!("{}\n\n{learning}", filled.trim_end()))
     }
 
     /// The prompt to run once in any agent to discover and save sources.
@@ -963,6 +1148,8 @@ impl TodoStore {
     /// A new change makes earlier undone groups non-redoable.
     fn invalidate_redo(c: &Connection) -> Result<()> {
         c.execute("UPDATE events SET undone_at = NULL WHERE undone = 1 AND undone_at IS NOT NULL", [])?;
+        // Feedback from changes that are undone and can no longer be redone is gone for good.
+        c.execute("DELETE FROM feedback WHERE event_id IN (SELECT id FROM events WHERE undone = 1)", [])?;
         Ok(())
     }
 
@@ -998,6 +1185,68 @@ impl TodoStore {
         };
         write_task(cx.c, &t)?;
         Ok(t)
+    }
+
+    /// Record feedback against the event just logged, so undo and redo carry it with the change.
+    fn insert_feedback(cx: &Ctx, task: &TodoItem, kind: &str, reason: Option<&str>) -> Result<()> {
+        let event_id = cx.c.last_insert_rowid();
+        let excerpt = task.excerpt.as_ref().or(task.summary.as_ref()).map(|e| {
+            let e = e.trim();
+            if e.chars().count() > EXCERPT_CHARS {
+                format!("{}…", e.chars().take(EXCERPT_CHARS).collect::<String>().trim_end())
+            } else {
+                e.to_string()
+            }
+        });
+        // Completing a task again (after reopening it) replaces its earlier feedback.
+        cx.c.execute("DELETE FROM feedback WHERE task_id = ?1 AND kind = ?2", params![task.id, kind])?;
+        cx.c.execute(
+            "INSERT INTO feedback (event_id, task_id, kind, title, source, source_from, excerpt, added_by, reason, task_created_at, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![event_id, task.id, kind, task.title, task.source, task.source_from, excerpt, task.added_by, reason, task.created_at, cx.now],
+        )?;
+        Ok(())
+    }
+
+    fn feedback_in(c: &Connection) -> Result<Vec<Feedback>> {
+        let mut st = c.prepare(LIVE_FEEDBACK)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok(Feedback {
+                    id: r.get(0)?,
+                    task_id: r.get(1)?,
+                    kind: r.get(2)?,
+                    title: r.get(3)?,
+                    source: r.get(4)?,
+                    source_from: r.get(5)?,
+                    excerpt: r.get(6)?,
+                    added_by: r.get(7)?,
+                    reason: r.get(8)?,
+                    task_created_at: r.get(9)?,
+                    created_at: r.get(10)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    fn learnings_in(c: &Connection) -> Result<Vec<Learning>> {
+        let mut st = c.prepare("SELECT id, text, author, position, updated_at FROM learnings ORDER BY position, id")?;
+        let rows = st
+            .query_map([], |r| Ok(Learning { id: r.get(0)?, text: r.get(1)?, author: r.get(2)?, position: r.get(3)?, updated_at: r.get(4)? }))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    fn check_note(text: &str) -> Result<String> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(TodoError::Invalid("a note can't be empty".into()));
+        }
+        if text.chars().count() > MAX_LEARNING_CHARS {
+            return Err(TodoError::Invalid(format!("notes must be at most {MAX_LEARNING_CHARS} characters")));
+        }
+        Ok(text.to_string())
     }
 
     fn min_rank(c: &Connection) -> Result<f64> {

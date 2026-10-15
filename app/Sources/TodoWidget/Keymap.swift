@@ -182,7 +182,7 @@ enum KeyGroup: String, CaseIterable {
 enum KeyAction: String, CaseIterable, Codable, Identifiable {
     case toggleWidget
     case previous, next, first, last, open, openSource, back
-    case toggleDone, delete, edit, save, moveUp, moveDown, newTask
+    case toggleDone, delete, reject, edit, save, moveUp, moveDown, newTask
     case toggleDoneSection, undo, redo, pin, runNow, settings, shortcuts
 
     var id: String { rawValue }
@@ -199,6 +199,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .back: "Back / close drawer"
         case .toggleDone: "Mark done / reopen"
         case .delete: "Delete task"
+        case .reject: "Reject an agent's task"
         case .edit: "Edit task"
         case .save: "Save edits"
         case .moveUp: "Move task up"
@@ -218,7 +219,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .toggleWidget: .global
         case .previous, .next, .first, .last, .open, .openSource, .back: .navigate
-        case .toggleDone, .delete, .edit, .save, .moveUp, .moveDown, .newTask: .tasks
+        case .toggleDone, .delete, .reject, .edit, .save, .moveUp, .moveDown, .newTask: .tasks
         case .toggleDoneSection, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
         }
     }
@@ -228,7 +229,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .toggleWidget: .global
         case .previous, .next, .first, .last, .open, .moveUp, .moveDown, .toggleDoneSection: .list
         case .edit, .save: .detail
-        case .openSource, .toggleDone, .delete, .back, .newTask, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
+        case .openSource, .toggleDone, .delete, .reject, .back, .newTask, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
         }
     }
 
@@ -244,6 +245,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .back: KeyBinding("escape")
         case .toggleDone: KeyBinding("space")
         case .delete: KeyBinding("delete")
+        case .reject: KeyBinding("delete", [.shift])
         case .edit: KeyBinding("e")
         case .save: KeyBinding("return", [.command])
         case .moveUp: KeyBinding("up", [.option, .command])

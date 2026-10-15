@@ -51,4 +51,18 @@ sources = json.loads(call("list_sources"))
 assert [s["name"] for s in sources] == ["slack"], sources
 call("get_changes_since", since="0")
 call("finish_run", summary="2 new, reordered")
+
+# The user completes one task and rejects the other; the next run folds that into notes.
+cli = [todo, *extra]
+subprocess.run([*cli, "done", a], check=True, capture_output=True)
+subprocess.run([*cli, "reject", b, "--reason", "Triage rota isn't mine"], check=True, capture_output=True)
+prompt = call("get_instructions", agent="Hermes")
+assert "REJECTED: \"Answer CONNECT-210 triage\"" in prompt and "my reason: Triage rota isn't mine" in prompt, prompt
+assert "COMPLETED: \"Submit September expenses\"" in prompt, prompt
+ids = [int(x.split()[0][1:]) for x in prompt.split("\n") if x.strip().startswith("#")]
+assert len(ids) == 2, ids
+saved = json.loads(call("save_learnings", notes=["Expense deadlines from Gmail matter", "Skip triage-rota pings"], processed_feedback_ids=ids))
+assert saved == {"notes": 2, "feedback_remaining": 0}, saved
+prompt = call("get_instructions", agent="Hermes")
+assert "- Skip triage-rota pings" in prompt and "No new feedback" in prompt, prompt
 p.stdin.close(); p.wait(timeout=5)

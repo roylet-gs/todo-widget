@@ -48,6 +48,15 @@ struct SaveSourceArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct SaveLearningsArgs {
+    /// The complete new list of notes about the user's preferences, one short sentence each.
+    /// It replaces the current list, so include the notes you are keeping.
+    notes: Vec<String>,
+    /// Ids (the numbers after #) of the feedback items you folded into the notes.
+    processed_feedback_ids: Option<Vec<i64>>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct SourceNameArg {
     /// Source name (case-insensitive).
     name: String,
@@ -262,6 +271,13 @@ impl TodoServer {
         if removed { Ok(json!({ "removed": a.name }).to_string()) } else { Err(format!("no source named '{}'", a.name)) }
     }
 
+    #[tool(description = "Replace your notes about which tasks the user wants, after folding in the feedback listed in the prompt (tasks the user completed or rejected). Pass the full list of notes and the ids of the feedback you used; that feedback is then cleared.")]
+    async fn save_learnings(&self, Parameters(a): Parameters<SaveLearningsArgs>) -> ToolResult {
+        let saved = self.store.save_learnings(a.notes, a.processed_feedback_ids.unwrap_or_default(), self.agent()).map_err(err)?;
+        let pending = self.store.list_feedback().map_err(err)?.len();
+        Ok(json!({ "notes": saved.len(), "feedback_remaining": pending }).to_string())
+    }
+
     #[tool(description = "List open tasks in priority order (optionally with today's completed tasks).")]
     async fn list_tasks(&self, Parameters(a): Parameters<ListArgs>) -> ToolResult {
         let tasks: Vec<_> = self.store.list_tasks(a.include_done.unwrap_or(false)).map_err(err)?.iter().map(task_json).collect();
@@ -360,7 +376,8 @@ impl ServerHandler for TodoServer {
             .with_server_info(Implementation::new("todo", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "The user's todo list, shown in a desktop widget. Call get_instructions first and follow the prompt it returns. \
-                 Group your writes with start_run / finish_run so the user gets one notification and can undo the run.",
+                 Group your writes with start_run / finish_run so the user gets one notification and can undo the run. \
+                 Before finish_run, call save_learnings to fold the user's feedback into your notes.",
             )
     }
 }
