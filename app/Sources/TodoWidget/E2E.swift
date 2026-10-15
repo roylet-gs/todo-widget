@@ -234,6 +234,8 @@ final class E2EServer {
             return r
         case "focus_quick_add":
             s.drawer.keys.perform(.newTask)
+        case "type_quick_add":
+            s.model.quickAddDraft = cmd["text"] as? String ?? ""
         case "modifier_events":
             // Synthetic modifier presses for the double-tap detector: "down", "up" or "key", 50 ms apart,
             // with `holding` modifiers held throughout.
@@ -331,6 +333,7 @@ final class E2EServer {
             "doneExpanded": m.doneExpanded,
             "shortcutsOpen": m.showShortcuts,
             "typing": s.drawer.keys.typing,
+            "quickAddDraft": m.quickAddDraft,
             "keymap": Dictionary(uniqueKeysWithValues: KeyAction.allCases.map { ($0.rawValue, s.prefs.key($0).spoken) }),
             "toast": m.toast?.text ?? NSNull(),
             "lastOpened": SourceOpener.lastOpened ?? NSNull(),

@@ -173,7 +173,6 @@ struct TaskListView: View {
     let controller: DrawerController
     @Environment(\.theme) private var theme
 
-    @State private var newTitle = ""
     @State private var runsExpanded = false
     @State private var dragging: String?
     @State private var dropTarget: String?
@@ -406,18 +405,24 @@ struct TaskListView: View {
     private var quickAdd: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus").foregroundStyle(.secondary)
-            TextField("Add task…", text: $newTitle)
+            TextField("Add task…", text: Bindable(model).quickAddDraft)
                 .textFieldStyle(.plain)
                 .focused($addFocused)
                 .onSubmit {
-                    model.add(newTitle)
-                    newTitle = ""
+                    model.add(model.quickAddDraft)
+                    model.quickAddDraft = ""
                 }
                 .onChange(of: addFocused) { _, f in if f { controller.engage() } }
             if prefs.showKeyHints { KeyCap(prefs.key(.newTask).display) }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         .background(.fill.tertiary, in: .rect(cornerRadius: 14))
+        .overlay {
+            // Same ring as the highlighted row: the keyboard is here, not on the list.
+            if addFocused {
+                RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1.5)
+            }
+        }
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
         .keyHelp(prefs, "New task", .newTask)
@@ -429,7 +434,7 @@ struct TaskListView: View {
         let fromIndex = dragging.flatMap { id in model.open.firstIndex { $0.id == id } }
         let movingDown = (fromIndex ?? 0) < index
         let isTarget = dropTarget == t.id && dragging != t.id
-        return TaskRow(task: t, chip: t.chip(lastSeen: model.lastSeenAt), highlighted: model.highlightedId == t.id,
+        return TaskRow(task: t, chip: t.chip(lastSeen: model.lastSeenAt), highlighted: model.highlightedId == t.id && !addFocused,
                        prefs: prefs, onToggle: { model.toggleDone(t) }, onOpen: {
             controller.engage()
             model.select(t)
@@ -492,7 +497,7 @@ struct TaskListView: View {
             .padding(.top, 10)
             if model.doneExpanded {
                 ForEach(model.done, id: \.id) { t in
-                    TaskRow(task: t, chip: nil, highlighted: model.highlightedId == t.id, prefs: prefs,
+                    TaskRow(task: t, chip: nil, highlighted: model.highlightedId == t.id && !addFocused, prefs: prefs,
                             onToggle: { model.toggleDone(t) }, onOpen: { controller.engage(); model.select(t) })
                         .onHover { if $0 { model.hoverHighlight(t.id) } }
                 }

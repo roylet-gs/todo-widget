@@ -38,9 +38,18 @@ final class DrawerKeys {
     @discardableResult
     func handle(_ b: KeyBinding) -> Bool {
         if typing {
-            // Plain keys belong to the text field; Esc leaves it.
+            // Plain keys belong to the text field. Quick add is the list's only field: there Esc
+            // collapses the drawer (keeping the draft) and ↓ goes to the first task. Elsewhere Esc leaves the field.
+            let inQuickAdd = model.selected == nil
             if b == KeyBinding("escape") {
+                if model.showShortcuts { model.showShortcuts = false }
+                else if inQuickAdd { controller.close() }
+                else { controller.endTyping() }
+                return true
+            }
+            if inQuickAdd && b == KeyBinding("down") {
                 controller.endTyping()
+                model.highlightedId = model.visibleOrder.first?.id
                 return true
             }
             guard b.hasCommandOrControl else { return false }
