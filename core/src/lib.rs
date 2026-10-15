@@ -691,7 +691,7 @@ impl TodoStore {
         let ids: Vec<String> = c
             .prepare(
                 "SELECT g.id FROM groups g WHERE EXISTS (SELECT 1 FROM events e WHERE e.group_id = g.id AND e.op != 'rerank')
-                 ORDER BY g.last_activity DESC LIMIT ?1",
+                 ORDER BY g.last_activity DESC, g.rowid DESC LIMIT ?1",
             )?
             .query_map([limit], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
