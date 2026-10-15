@@ -116,7 +116,7 @@ struct SetupView: View {
                 Notifier.requestPermission { notificationsOK = $0 }
             }
             if let hotkey = AppServices.shared?.hotkey, hotkey.needsAccessibility {
-                row("Keyboard", "Double-tap \(prefs.key(.toggleWidget).doubleTap?.symbol ?? "⌘") in any app to show or hide the widget. Needs Accessibility access.",
+                row("Keyboard", "\(prefs.key(.toggleWidget).spoken) in any app to show or hide the widget. Needs Accessibility access.",
                     status: nil, ok: hotkey.accessibilityGranted, action: hotkey.accessibilityGranted ? "Allowed" : "Allow") {
                     hotkey.requestAccess()
                 }

@@ -2,23 +2,27 @@ import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
 
-/// Recognises a double tap of one modifier key on its own: pressed and released twice, quickly,
-/// with no other modifier or key in between (so ⌘C, ⌘⇧ and holding ⌘ never count).
+/// Recognises a double tap of one modifier key while holding exactly `holding` (often nothing): pressed
+/// and released twice, quickly, with no other modifier or key in between (so ⌘C, ⌘⇧ and holding ⌘ never count).
 struct DoubleTapDetector {
     var modifier: Mod
+    var holding: Set<Mod>
     var interval: TimeInterval = 0.35
     private var downAt: TimeInterval?
     private var lastTapAt: TimeInterval?
 
-    init(modifier: Mod) { self.modifier = modifier }
+    init(modifier: Mod, holding: Set<Mod> = []) {
+        self.modifier = modifier
+        self.holding = holding.subtracting([modifier])
+    }
 
     /// Feed the modifiers held after a flags change. Returns true when a double tap completes.
     mutating func flagsChanged(_ held: Set<Mod>, at t: TimeInterval) -> Bool {
-        if held == [modifier] {
+        if held == holding.union([modifier]) {
             downAt = t
             return false
         }
-        guard held.isEmpty, let down = downAt else {
+        guard held == holding, let down = downAt else {
             reset()
             return false
         }
@@ -90,7 +94,7 @@ final class HotkeyMonitor {
         disarm()
         let b = binding
         if let m = b.doubleTap {
-            detector = DoubleTapDetector(modifier: m)
+            detector = DoubleTapDetector(modifier: m, holding: Set(b.mods))
             let flags: (NSEvent) -> Void = { [weak self] e in
                 MainActor.assumeIsolated { self?.flagsChanged(Mod.from(e.modifierFlags), at: e.timestamp) }
             }
