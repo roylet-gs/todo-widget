@@ -44,16 +44,19 @@ final class DrawerKeys {
             return !typing
         }
         if typing {
-            // Plain keys belong to the text field. Quick add is the list's only field: there Esc
-            // collapses the drawer (keeping the draft) and ↓ goes to the first task. Elsewhere Esc leaves the field.
-            let inQuickAdd = model.selected == nil
+            // Plain keys belong to the text field. In the list (quick add or search) Esc collapses the
+            // drawer, keeping the draft, or clears the search; ↓ goes to the first task. In the editor Esc
+            // cancels the edit; elsewhere it leaves the field.
+            let inList = model.selected == nil
             if b == KeyBinding("escape") {
                 if model.showShortcuts { model.showShortcuts = false }
-                else if inQuickAdd { controller.close() }
+                else if model.editingId != nil { cancelEdit() }
+                else if inList && model.searching { controller.endTyping(); model.endSearch() }
+                else if inList { controller.close() }
                 else { controller.endTyping() }
                 return true
             }
-            if inQuickAdd && b == KeyBinding("down") {
+            if inList && b == KeyBinding("down") {
                 controller.endTyping()
                 model.highlightedId = model.visibleOrder.first?.id
                 return true
@@ -62,6 +65,12 @@ final class DrawerKeys {
         }
         guard let action = prefs.keymap.action(for: b, inDetail: model.selected != nil) else { return false }
         return perform(action)
+    }
+
+    /// Leave edit mode without saving; the draft is dropped.
+    private func cancelEdit() {
+        controller.endTyping()
+        model.editingId = nil
     }
 
     @discardableResult
@@ -84,7 +93,9 @@ final class DrawerKeys {
             guard let t = m.selected ?? m.highlighted, m.openSource(t) else { return false }
         case .back:
             if m.showShortcuts { m.showShortcuts = false }
+            else if m.editingId != nil { cancelEdit() }
             else if m.selectedId != nil { m.select(nil) }
+            else if m.searching { m.endSearch() }
             else { controller.close() }
         case .toggleDone:
             guard let t = m.selected ?? m.highlighted else { return false }
@@ -103,11 +114,15 @@ final class DrawerKeys {
         case .edit: m.wantsEdit = true
         case .save: m.wantsSave = true
         case .moveUp, .moveDown:
-            guard let id = m.highlightedId else { return false }
+            guard let id = m.highlightedId, !m.isFiltering else { return false }
             m.nudge(id, by: action == .moveUp ? -1 : 1)
+        case .priority1, .priority2, .priority3:
+            guard let t = m.selected ?? m.highlighted, !t.isDone else { return false }
+            m.setPriority(t, action == .priority1 ? 1 : action == .priority2 ? 2 : 3)
         case .newTask:
             m.select(nil)
             m.wantsQuickAdd = true
+        case .search: m.beginSearch()
         case .toggleDoneSection:
             m.doneExpanded.toggle()
             m.ensureHighlight()

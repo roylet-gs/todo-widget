@@ -17,6 +17,36 @@ final class FloatingPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// Any click in the panel takes keyboard focus, not only clicks on text fields.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown && !isKeyWindow { makeKey() }
+        super.sendEvent(event)
+    }
+}
+
+/// Hosts the drawer and reports the pointer entering and leaving it.
+final class HoverHostingView<Content: View>: NSHostingView<Content> {
+    var onHover: ((Bool) -> Void)?
+    private var area: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area { removeTrackingArea(area) }
+        let a = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(a)
+        area = a
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onHover?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHover?(false)
+    }
 }
 
 /// Owns the collapsed tab (draggable, always snapped to the left or right screen edge)
@@ -33,6 +63,8 @@ final class DrawerController {
     private(set) var isDraggingTab = false
     private var dragOffset: NSPoint?
     private var clickMonitors: [Any] = []
+    /// The app that had the keyboard before the pointer moved onto the drawer; it gets it back on leaving.
+    @ObservationIgnored private var keyboardOwner: NSRunningApplication?
     @ObservationIgnored private(set) lazy var keys = DrawerKeys(model: model, prefs: prefs, controller: self)
     /// E2E: a synthetic pointer location used instead of the real mouse while dragging.
     var simulatedMouse: NSPoint?
@@ -50,7 +82,11 @@ final class DrawerController {
         tabPanel = FloatingPanel(contentRect: NSRect(origin: .zero, size: Self.tabSize))
         drawerPanel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: Self.defaultDrawerWidth, height: 600))
         tabPanel.contentView = NSHostingView(rootView: EdgeTabView(model: model, prefs: prefs, controller: self).themed(prefs))
-        drawerPanel.contentView = NSHostingView(rootView: DrawerView(model: model, prefs: prefs, updater: updater, controller: self).themed(prefs))
+        let drawerView = HoverHostingView(rootView: DrawerView(model: model, prefs: prefs, updater: updater, controller: self).themed(prefs))
+        drawerPanel.contentView = drawerView
+        drawerView.onHover = { [weak self] inside in
+            MainActor.assumeIsolated { inside ? self?.pointerEntered() : self?.pointerExited() }
+        }
         applyPrefs()
         tabPanel.orderFrontRegardless()
         observePrefs()
@@ -299,6 +335,25 @@ final class DrawerController {
     func engage() {
         drawerPanel.makeKey()
     }
+
+    /// Hovering the drawer gives it the keyboard, so shortcuts work without a click. The panel is
+    /// non-activating, so the app underneath stays frontmost.
+    func pointerEntered() {
+        guard isOpen, !drawerPanel.isKeyWindow else { return }
+        let front = NSWorkspace.shared.frontmostApplication
+        keyboardOwner = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
+        drawerPanel.makeKey()
+    }
+
+    /// Leaving hands the keyboard back, unless something in the drawer is being typed into or a menu is open.
+    func pointerExited() {
+        guard isOpen, drawerPanel.isKeyWindow, !firstResponderIsText, model.rejecting == nil,
+              model.editingId == nil, RunLoop.current.currentMode != .eventTracking else { return }
+        keyboardOwner?.activate()
+        keyboardOwner = nil
+    }
+
+    var drawerIsKey: Bool { drawerPanel.isKeyWindow }
 
     /// A text field in the drawer is being edited (its field editor is first responder).
     var firstResponderIsText: Bool { drawerPanel.firstResponder is NSText }

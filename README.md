@@ -42,8 +42,13 @@ That's it. Your list lives in the small tab on the edge of your screen: click it
 move it to the other side. You can run setup again any time from Settings › General.
 
 **Keyboard:** hold ⌃ and double-tap ⌘ in any app to show or hide the list (macOS asks for Accessibility access the first
-time). Then ↑ ↓ select a task, ↩ opens it, Space marks it done, ⌫ deletes it (⌘Z undoes), Esc goes back, and
-? lists every shortcut. Change any of them in Settings › Keyboard.
+time). Hovering over the open list also gives it the keyboard. Then ↑ ↓ select a task, ↩ opens it, Space marks it
+done, 1 2 3 set its priority, ⌫ deletes it (⌘Z undoes), ⌘F searches, Esc goes back (or cancels an edit), and ? lists
+every shortcut. Change any of them in Settings › Keyboard.
+
+**Priority:** the list is ordered by priority, then by your own order within each priority. Dragging a task into
+another priority's group changes its priority. Turn this off in Settings › General to order the list by hand only.
+Also in Settings › General, you can stop agents from completing or deleting tasks, so only you can.
 
 **Themes:** switch themes in Settings › Themes, or build your own there. Duplicate a theme, set its accent, background,
 text, priority and done colors for light and dark, and save.
