@@ -719,6 +719,35 @@ def sources_managed_by_agent(app: App):
 
 
 @spec
+def sources_edited_in_settings(app: App):
+    app.cmd("settings", tab="sources")
+    app.snapshot("settings", "sources-before")
+    cli_sources = lambda: json.loads(subprocess.run([str(TODO), "--json", "sources"], env=app.env, check=True,
+                                                    capture_output=True, text=True).stdout)
+
+    expect(app.cmd("edit_source", name="Gmail", new_name="Email", instructions="Replies from customers")["saved"], "rename failed")
+    expect(app.cmd("edit_source", name="Slack", enabled=False)["saved"], "disable failed")
+    s = app.wait_state(lambda s: [(x["name"], x["enabled"]) for x in s["sources"]] == [("Slack", False), ("Email", True)],
+                       "edits did not show up")
+    expect(s["sources"][1]["instructions"] == "Replies from customers", f"instructions: {s['sources']}")
+    expect([(x["name"], x["enabled"]) for x in cli_sources()] == [("Slack", False), ("Email", True)], "edits did not reach the database")
+
+    # Agents find sources by name, so a clash is refused and nothing changes.
+    expect(not app.cmd("edit_source", name="Email", new_name="slack")["saved"], "duplicate name was accepted")
+    expect([x["name"] for x in app.state()["sources"]] == ["Slack", "Email"], "a refused rename changed the source")
+    app.snapshot("settings", "sources-edited")
+
+    app.cmd("delete_source", name="Slack")
+    app.wait_state(lambda s: [x["name"] for x in s["sources"]] == ["Email"], "delete did not show up")
+    m = Mcp(app.env, "Checker")
+    text = m.call("get_instructions", agent="Checker")
+    m.close()
+    listed = [x["name"] for x in json.loads(text.split("\nsources:\n")[1].split("\nopen_tasks")[0])]
+    expect(listed == ["Email"] and "- Email (Email): Replies from customers" in text, f"agents still see the old sources: {listed}")
+    app.snapshot("settings", "sources-deleted")
+
+
+@spec
 def learning_from_feedback(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     app.cmd("open_drawer")

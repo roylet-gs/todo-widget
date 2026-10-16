@@ -34,7 +34,8 @@ of its windows to `e2e/tmp/<spec>--<label>.png`.
 - Agent-agnostic: prompts and UI never name a specific agent. Agents identify themselves via `start_run` /
   `get_instructions`; that name is only stored as the actor on their changes. Only the MCP installers
   (`Integrations.swift`, setup's Connect step) know about specific tools.
-- Sources are managed by agents through the MCP (`save_source`, `remove_source`); the app shows them read-only.
+- Sources are added by agents through the MCP (`save_source`, `remove_source`); the user can also edit or delete them
+  in Settings → Sources. Names are unique ignoring case, because agents look sources up by name.
 - Learning: when the user completes or rejects (`reject_task`) a task an agent added, the core stores it as feedback.
   `render_prompt` appends notes plus pending feedback to every run prompt, custom templates included. Agents fold the
   feedback into capped notes with `save_learnings`, which clears what they used.

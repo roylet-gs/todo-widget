@@ -234,6 +234,16 @@ final class E2EServer {
             if cmd["select"] as? Bool ?? true { s.prefs.selectTheme(t) }
         case "delete_theme":
             s.prefs.deleteCustomTheme(id: cmd["id"] as? String ?? "")
+        case "edit_source":
+            guard var src = s.model.sources.first(where: { $0.name == cmd["name"] as? String }) else { throw Failure(description: "no source \(cmd["name"] ?? "")") }
+            if let v = cmd["new_name"] as? String { src.name = v }
+            if let v = cmd["kind"] as? String { src.kind = v }
+            if let v = cmd["instructions"] as? String { src.instructions = v }
+            if let v = cmd["enabled"] as? Bool { src.enabled = v }
+            return ["saved": s.model.updateSource(src)]
+        case "delete_source":
+            guard let src = s.model.sources.first(where: { $0.name == cmd["name"] as? String }) else { throw Failure(description: "no source \(cmd["name"] ?? "")") }
+            s.model.deleteSource(src)
         case "settings":
             s.showSettings(tab: SettingsTab(rawValue: cmd["tab"] as? String ?? "general") ?? .general)
         case "close_settings":
@@ -355,7 +365,7 @@ final class E2EServer {
             "done": m.done.map(t),
             "unread": m.unreadCount,
             "recentRuns": m.recentRuns.map { ["actor": $0.actor, "stats": $0.statsText, "summary": $0.summary ?? ""] },
-            "sources": m.sources.map { ["name": $0.name, "kind": $0.kind, "instructions": $0.instructions, "enabled": $0.enabled] },
+            "sources": m.sources.map { ["id": $0.id, "name": $0.name, "kind": $0.kind, "instructions": $0.instructions, "enabled": $0.enabled] },
             "schedulePrompt": (try? m.store.renderSetupPrompt()) ?? "",
             "runPrompt": (try? m.store.renderPrompt()) ?? "",
             "rejecting": m.rejecting?.title ?? NSNull(),

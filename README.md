@@ -63,7 +63,7 @@ the `todo` entry from your agent's MCP settings too.
 
 The app is agent-agnostic: agents connect to the local `todo mcp` command, pass their own name to `start_run` /
 `get_instructions` (shown next to their changes; nothing is registered per agent), manage your sources with
-`save_source` / `remove_source`, and update the list. Every scheduled run calls `get_instructions` first, so
+`save_source` / `remove_source` (you can also edit or delete them in Settings → Sources), and update the list. Every scheduled run calls `get_instructions` first, so
 changes to sources and rules apply without touching the schedule.
 
 Agents also learn which tasks you want. Completing a task an agent added counts as a good example, and

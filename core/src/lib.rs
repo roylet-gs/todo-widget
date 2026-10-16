@@ -858,10 +858,18 @@ impl TodoStore {
         Self::sources_in(&c)
     }
 
-    /// Insert (empty id) or update a source. Returns the saved source.
+    /// Insert (empty id) or update a source. Returns the saved source. Names are unique ignoring
+    /// case, since agents find sources by name.
     pub fn save_source(&self, source: Source) -> Result<Source> {
         let c = self.conn.lock().unwrap();
         let mut s = source;
+        s.name = s.name.trim().to_string();
+        if s.name.is_empty() {
+            return Err(TodoError::Invalid("source name is required".into()));
+        }
+        if Self::sources_in(&c)?.iter().any(|o| o.id != s.id && o.name.eq_ignore_ascii_case(&s.name)) {
+            return Err(TodoError::Invalid(format!("a source named {} already exists", s.name)));
+        }
         if s.id.is_empty() {
             s.id = new_id();
             s.position = c.query_row("SELECT COALESCE(MAX(position), 0) + 1 FROM sources", [], |r| r.get(0))?;
