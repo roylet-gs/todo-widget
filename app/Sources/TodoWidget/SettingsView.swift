@@ -151,6 +151,17 @@ struct GeneralPane: View {
             }
         }
         Card {
+            CardRow(title: "Order tasks by priority", detail: "P1 tasks first, then P2, then P3. Dragging a task into another priority's group changes its priority.") {
+                Toggle("", isOn: Binding(get: { model.orderByPriority }, set: { model.setOrderByPriority($0) }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+            Divider()
+            CardRow(title: "Let agents complete and delete tasks", detail: "When off, agents can add and update tasks, but only you can mark them done or delete them.") {
+                Toggle("", isOn: Binding(get: { !model.protectTasks }, set: { model.setProtectTasks(!$0) }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+        }
+        Card {
             CardRow(title: "Clear done tasks", detail: "Cleared tasks stay in History and can be restored.") {
                 Picker("", selection: $prefs.clearDone) { ForEach(ClearDone.allCases) { Text($0.label).tag($0) } }
                     .frame(width: 170).labelsHidden()

@@ -394,7 +394,7 @@ fn version_1_database_migrates() {
     let s = TodoStore::open(Some(path.to_string_lossy().into())).unwrap();
     s.add_learning("works".into()).unwrap();
     let v: i64 = s.conn.lock().unwrap().pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
-    assert_eq!(v, 2);
+    assert_eq!(v, 3);
 }
 
 #[test]
@@ -406,4 +406,135 @@ fn reset_clears_learning() {
     s.reset(false).unwrap();
     assert!(s.list_feedback().unwrap().is_empty());
     assert!(s.list_learnings().unwrap().is_empty());
+}
+
+#[test]
+fn version_2_database_gains_source_label_and_old_events_still_undo() {
+    unsafe { std::env::set_var("TODO_NO_NOTIFY", "1") };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v2.db");
+    {
+        let c = Connection::open(&path).unwrap();
+        c.execute_batch(&format!("{SCHEMA} {SCHEMA_V2} PRAGMA user_version = 2;")).unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, rank, added_by, updated_by, created_at, updated_at) VALUES ('t1', 'old', 1, 'You', 'You', 0, 0)",
+            [],
+        )
+        .unwrap();
+    }
+    let s = TodoStore::open(Some(path.to_string_lossy().into())).unwrap();
+    assert_eq!(s.get_task("t1".into()).unwrap().source_label, None);
+    // An event written before the column existed has no source_label in its JSON.
+    let before = r#"{"id":"t1","title":"older","rank":1.0,"priority":2,"due":null,"status":"open","summary":null,"rationale":null,"source":null,"source_ref":null,"source_url":null,"excerpt":null,"source_from":null,"unread":false,"last_move":0,"added_by":"You","updated_by":"You","user_ranked_at":null,"done_at":null,"archived_at":null,"created_at":0,"updated_at":0}"#;
+    {
+        let c = s.conn.lock().unwrap();
+        c.execute("INSERT INTO groups (id, kind, actor, label, created_at, last_activity) VALUES ('g', 'user', 'You', 'x', 0, 0)", []).unwrap();
+        c.execute("INSERT INTO events (group_id, actor, op, task_id, task_title, before_json, ts) VALUES ('g', 'You', 'update', 't1', 'old', ?1, 0)", [before]).unwrap();
+    }
+    s.undo_group("g".into()).unwrap();
+    assert_eq!(s.get_task("t1".into()).unwrap().title, "older");
+}
+
+#[test]
+fn source_label_is_saved_on_upsert_and_update() {
+    let (_d, s) = store();
+    let mut i = input("Review PR", Some("gh:1"));
+    i.source_url = Some("https://example.com/pr/1".into());
+    i.source_label = Some("PR #1".into());
+    let t = s.upsert_task(i, "Claude".into(), None).unwrap().task;
+    assert_eq!(t.source_label.as_deref(), Some("PR #1"));
+    let t = s.update_task(t.id, TaskPatch { source_label: Some("PR #1 (rebased)".into()), ..Default::default() }, USER.into(), None).unwrap();
+    assert_eq!(t.source_label.as_deref(), Some("PR #1 (rebased)"));
+    let t = s.update_task(t.id, TaskPatch { source_label: Some("".into()), ..Default::default() }, USER.into(), None).unwrap();
+    assert_eq!(t.source_label, None);
+}
+
+fn with_priority(s: &TodoStore, title: &str, p: u8) -> TodoItem {
+    s.add_task(TaskInput { title: title.into(), priority: Some(p), ..Default::default() }, "Claude".into(), None).unwrap()
+}
+
+fn priorities(s: &TodoStore) -> Vec<(String, u8)> {
+    s.list_tasks(false).unwrap().into_iter().map(|t| (t.title, t.priority)).collect()
+}
+
+#[test]
+fn list_is_ordered_by_priority_by_default() {
+    let (_d, s) = store();
+    assert!(s.get_order_by_priority().unwrap());
+    with_priority(&s, "low", 3);
+    with_priority(&s, "mid", 2);
+    with_priority(&s, "top", 1);
+    assert_eq!(titles(&s), ["top", "mid", "low"]);
+    s.set_order_by_priority(false).unwrap();
+    assert_eq!(titles(&s), ["low", "mid", "top"]);
+}
+
+#[test]
+fn dragging_into_another_priority_changes_it() {
+    let (_d, s) = store();
+    let a = with_priority(&s, "a1", 1);
+    with_priority(&s, "b1", 1);
+    let c = with_priority(&s, "c2", 2);
+    with_priority(&s, "d2", 2);
+    // [a1, b1, c2, d2]. Moving c2 up to the top joins P1.
+    let t = s.move_task(c.id.clone(), 0).unwrap();
+    assert_eq!(t.priority, 1);
+    assert_eq!(priorities(&s), [("c2".into(), 1), ("a1".into(), 1), ("b1".into(), 1), ("d2".into(), 2)]);
+    assert_eq!(s.undo_last().unwrap().unwrap(), "Moved “c2” to P1");
+    assert_eq!(priorities(&s), [("a1".into(), 1), ("b1".into(), 1), ("c2".into(), 2), ("d2".into(), 2)]);
+
+    // Moving a1 down past d2 (to the end) joins P2.
+    let t = s.move_task(a.id.clone(), 3).unwrap();
+    assert_eq!(t.priority, 2);
+    assert_eq!(titles(&s), ["b1", "c2", "d2", "a1"]);
+}
+
+#[test]
+fn dropping_at_a_group_boundary_keeps_priority() {
+    let (_d, s) = store();
+    let a = with_priority(&s, "a1", 1);
+    with_priority(&s, "b1", 1);
+    let c = with_priority(&s, "c2", 2);
+    with_priority(&s, "d2", 2);
+    // a1 moves down to just above c2: the task above it is b1, so it stays P1.
+    let t = s.move_task(a.id, 1).unwrap();
+    assert_eq!(t.priority, 1);
+    assert_eq!(titles(&s), ["b1", "a1", "c2", "d2"]);
+    // c2 dragged up to the boundary from below stays P2 (moving up joins the task below it, d2).
+    let t = s.move_task(c.id.clone(), 2).unwrap();
+    assert_eq!(t.priority, 2);
+    // Nudging c2 up one across the boundary joins P1.
+    let t = s.move_task(c.id, 1).unwrap();
+    assert_eq!(t.priority, 1);
+    assert_eq!(titles(&s), ["b1", "c2", "a1", "d2"]);
+}
+
+#[test]
+fn moving_without_priority_order_keeps_priority() {
+    let (_d, s) = store();
+    s.set_order_by_priority(false).unwrap();
+    with_priority(&s, "a1", 1);
+    let b = with_priority(&s, "b3", 3);
+    let t = s.move_task(b.id, 0).unwrap();
+    assert_eq!(t.priority, 3);
+    assert_eq!(titles(&s), ["b3", "a1"]);
+}
+
+#[test]
+fn protection_stops_agents_completing_or_deleting() {
+    let (_d, s) = store();
+    let a = s.add_task(input("a", None), "Claude".into(), None).unwrap();
+    assert!(!s.get_protect_tasks().unwrap());
+    s.set_protect_tasks(true).unwrap();
+    assert!(s.set_done(a.id.clone(), true, "Claude".into(), None, None).is_err());
+    assert!(s.delete_task(a.id.clone(), "Claude".into(), None, None).is_err());
+    // Agents may still edit, and the user may still do anything.
+    s.update_task(a.id.clone(), TaskPatch { title: Some("a2".into()), ..Default::default() }, "Claude".into(), None).unwrap();
+    s.set_done(a.id.clone(), true, USER.into(), None, None).unwrap();
+    s.set_done(a.id.clone(), false, "Claude".into(), None, None).unwrap();
+    s.delete_task(a.id, USER.into(), None, None).unwrap();
+    assert!(s.render_prompt().unwrap().contains("turned off agents completing or deleting"));
+    s.set_protect_tasks(false).unwrap();
+    assert!(!s.render_prompt().unwrap().contains("turned off agents completing or deleting"));
+    assert!(s.render_prompt().unwrap().contains("ordered by priority first"));
 }

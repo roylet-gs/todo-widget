@@ -253,6 +253,7 @@ struct TaskListView: View {
     @State private var dragging: String?
     @State private var dropTarget: String?
     @FocusState private var addFocused: Bool
+    @FocusState private var searchFocused: Bool
 
     private let todayCount = 5
 
@@ -262,22 +263,31 @@ struct TaskListView: View {
             if updater.updateAvailable { updateBanner }
             if !model.recentRuns.isEmpty { runStrip }
             quickAdd
+            if model.searching { searchField }
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(Array(model.open.prefix(todayCount).enumerated()), id: \.element.id) { i, t in row(t, index: i) }
-                    if model.open.count > todayCount {
-                        sectionDivider("Later")
-                        ForEach(Array(model.open.dropFirst(todayCount).enumerated()), id: \.element.id) { i, t in
-                            row(t, index: i + todayCount).opacity(0.78)
+                    let rows = model.shownOpen
+                    // Ordered by priority, a divider marks where each priority's group starts.
+                    let groups = model.orderByPriority && !model.isFiltering
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, t in
+                        if i == todayCount && !model.isFiltering {
+                            sectionDivider("Later")
                         }
+                        if groups && i > 0 && rows[i - 1].priority != t.priority {
+                            priorityDivider(t.priority)
+                        }
+                        row(t, index: i).opacity(i >= todayCount && !model.isFiltering ? 0.78 : 1)
                     }
-                    if model.open.isEmpty {
+                    if model.isFiltering && rows.isEmpty && model.shownDone.isEmpty {
+                        Text("No matches").font(.callout).foregroundStyle(.secondary).padding(.top, 40)
+                    } else if model.open.isEmpty {
                         Text("Nothing to do. Agents will add tasks here.")
                             .font(.callout).foregroundStyle(.secondary).padding(.top, 40)
                     }
-                    if !model.done.isEmpty { doneSection }
+                    if !model.shownDone.isEmpty { doneSection }
                 }
+                .animation(.snappy(duration: 0.25), value: model.shownOpen.map(\.id))
                 .padding(.horizontal, 8)
                 .padding(.bottom, 10)
             }
@@ -291,7 +301,49 @@ struct TaskListView: View {
             if prefs.showKeyHints { keyFooter }
         }
         .onChange(of: model.wantsQuickAdd) { _, w in if w { focusQuickAdd() } }
-        .onAppear { if model.wantsQuickAdd { focusQuickAdd() } }
+        .onChange(of: model.wantsSearchFocus) { _, w in if w { focusSearch() } }
+        .onAppear {
+            if model.wantsQuickAdd { focusQuickAdd() }
+            if model.wantsSearchFocus { focusSearch() }
+        }
+    }
+
+    private func focusSearch() {
+        model.wantsSearchFocus = false
+        controller.engage()
+        searchFocused = true
+    }
+
+    // MARK: search
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search tasks…", text: Bindable(model).query)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .onSubmit {
+                    searchFocused = false
+                    model.highlightedId = model.visibleOrder.first?.id
+                }
+                .onChange(of: model.query) { _, _ in model.ensureHighlight() }
+            if model.isFiltering {
+                Text("\(model.shownOpen.count + model.shownDone.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Button { model.endSearch() } label: { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.plain).foregroundStyle(.tertiary)
+                .keyHelp(prefs, "Close search", .back)
+                .accessibilityLabel("Close search")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(.fill.tertiary, in: .rect(cornerRadius: 14))
+        .overlay {
+            if searchFocused {
+                RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1.5)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
     }
 
     private func focusQuickAdd() {
@@ -372,6 +424,14 @@ struct TaskListView: View {
                         .disabled(runner.isRunning)
                         .keyHelp(prefs, "Run the agent now", .runNow)
                     }
+                    Button { model.searching ? model.endSearch() : model.beginSearch() } label: {
+                        Image(systemName: "magnifyingglass").frame(width: 16, height: 16)
+                    }
+                    .glassButton()
+                    .buttonBorderShape(.roundedRectangle(radius: 8))
+                    .focusEffectDisabled()
+                    .keyHelp(prefs, "Search tasks", .search)
+                    .accessibilityLabel("Search")
                     Button { prefs.pinned.toggle() } label: {
                         Image(systemName: prefs.pinned ? "pin.fill" : "pin").frame(width: 16, height: 16)
                     }
@@ -510,7 +570,9 @@ struct TaskListView: View {
         let fromIndex = dragging.flatMap { id in model.open.firstIndex { $0.id == id } }
         let movingDown = (fromIndex ?? 0) < index
         let isTarget = dropTarget == t.id && dragging != t.id
-        return TaskRow(task: t, chip: t.chip(lastSeen: model.lastSeenAt), highlighted: model.highlightedId == t.id && !addFocused,
+        let anyFocused = addFocused || searchFocused
+        return TaskRow(task: t, chip: t.chip(lastSeen: model.lastSeenAt), highlighted: model.highlightedId == t.id && !anyFocused,
+                       completing: model.isCompleting(t), draggable: !model.isFiltering,
                        prefs: prefs, onToggle: { model.toggleDone(t) }, onOpen: {
             controller.engage()
             model.select(t)
@@ -520,32 +582,54 @@ struct TaskListView: View {
             if isTarget { Capsule().fill(theme.accent).frame(height: 3).padding(.horizontal, 6) }
         }
         .onHover { if $0 { model.hoverHighlight(t.id) } }
+        // A filtered list hides tasks, so a drop position there would be ambiguous.
         .onDrag {
+            guard !model.isFiltering else { return NSItemProvider() }
             dragging = t.id
             return NSItemProvider(object: t.id as NSString)
         }
         .dropDestination(for: String.self) { items, _ in
             defer { dragging = nil; dropTarget = nil }
-            guard let id = items.first, id != t.id else { return false }
+            guard !model.isFiltering, let id = items.first, id != t.id else { return false }
             model.move(id, to: index)
             return true
         } isTargeted: { inside in
-            if inside { dropTarget = t.id } else if dropTarget == t.id { dropTarget = nil }
+            if inside && !model.isFiltering { dropTarget = t.id } else if dropTarget == t.id { dropTarget = nil }
         }
         .contextMenu {
             Button("Open") { model.select(t) }.menuShortcut(prefs, .open)
             if t.sourceUrl != nil {
-                Button("Open in \(t.source ?? "source")") { model.openSource(t) }.menuShortcut(prefs, .openSource)
+                Button(t.sourceLinkTitle) { model.openSource(t) }.menuShortcut(prefs, .openSource)
             }
             Button("Mark done") { model.toggleDone(t) }.menuShortcut(prefs, .toggleDone)
-            Button("Move up") { model.nudge(t.id, by: -1) }.menuShortcut(prefs, .moveUp).disabled(index == 0)
-            Button("Move down") { model.nudge(t.id, by: 1) }.menuShortcut(prefs, .moveDown)
+            Menu("Priority") {
+                ForEach([UInt8(1), 2, 3], id: \.self) { p in
+                    Button { model.setPriority(t, p) } label: {
+                        if p == t.priority { Label("P\(p)", systemImage: "checkmark") } else { Text("P\(p)") }
+                    }
+                    .menuShortcut(prefs, KeyAction.priority(p))
+                }
+            }
+            if !model.isFiltering {
+                Button("Move up") { model.nudge(t.id, by: -1) }.menuShortcut(prefs, .moveUp).disabled(index == 0)
+                Button("Move down") { model.nudge(t.id, by: 1) }.menuShortcut(prefs, .moveDown)
+            }
             Divider()
             if t.isAgentTask {
                 Button("Reject…", role: .destructive) { model.beginReject(t) }.menuShortcut(prefs, .reject)
             }
             Button("Delete", role: .destructive) { model.delete(t) }.menuShortcut(prefs, .delete)
         }
+    }
+
+    private func priorityDivider(_ p: UInt8) -> some View {
+        HStack(spacing: 8) {
+            Capsule().fill(theme.priority(p)).frame(width: 14, height: 3)
+            Text("P\(p)").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+            Rectangle().fill(.separator).frame(height: 1)
+        }
+        .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 2)
+        .accessibilityLabel("Priority \(p)")
     }
 
     private func sectionDivider(_ title: String) -> some View {
@@ -557,12 +641,15 @@ struct TaskListView: View {
         .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
+    /// Search results include matching done tasks.
+    private var doneShown: Bool { model.doneExpanded || model.isFiltering }
+
     private var doneSection: some View {
         VStack(spacing: 2) {
             Button { withAnimation(.snappy) { model.doneExpanded.toggle() } } label: {
                 HStack {
-                    Text("Done today · \(model.done.count)").font(.caption.weight(.semibold))
-                    Image(systemName: model.doneExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
+                    Text("Done today · \(model.shownDone.count)").font(.caption.weight(.semibold))
+                    Image(systemName: doneShown ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
                     Spacer()
                     Text(prefs.clearDone == .never ? "" : prefs.clearDone == .midnight ? "Clears at midnight" : "Clears after 24 h")
                         .font(.caption)
@@ -574,9 +661,9 @@ struct TaskListView: View {
             .buttonStyle(.plain)
             .keyHelp(prefs, model.doneExpanded ? "Hide done tasks" : "Show done tasks", .toggleDoneSection)
             .padding(.top, 10)
-            if model.doneExpanded {
-                ForEach(model.done, id: \.id) { t in
-                    TaskRow(task: t, chip: nil, highlighted: model.highlightedId == t.id && !addFocused, prefs: prefs,
+            if doneShown {
+                ForEach(model.shownDone, id: \.id) { t in
+                    TaskRow(task: t, chip: nil, highlighted: model.highlightedId == t.id && !addFocused && !searchFocused, prefs: prefs,
                             onToggle: { model.toggleDone(t) }, onOpen: { controller.engage(); model.select(t) })
                         .onHover { if $0 { model.hoverHighlight(t.id) } }
                 }
@@ -604,6 +691,9 @@ struct TaskRow: View {
     let task: TodoTask
     let chip: String?
     var highlighted = false
+    /// Just ticked: drawn as done while the row waits to move to the Done section.
+    var completing = false
+    var draggable = true
     let prefs: Preferences
     let onToggle: () -> Void
     let onOpen: () -> Void
@@ -615,18 +705,26 @@ struct TaskRow: View {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
-                .opacity(hover && !task.isDone ? 1 : 0)
+                .opacity(hover && !task.isDone && draggable ? 1 : 0)
                 .accessibilityHidden(true)
             Button(action: onToggle) {
                 ZStack {
                     Circle().strokeBorder(Color.secondary.opacity(task.isDone ? 0.35 : 0.6), lineWidth: 1.5)
-                    if task.isDone {
+                    if completing {
+                        // The tick pops in at full strength, then the row moves to Done.
+                        Circle().fill(theme.done)
+                            .transition(.scale(scale: 0.2).combined(with: .opacity))
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .heavy)).foregroundStyle(.white)
+                            .transition(.scale(scale: 0.4).combined(with: .opacity))
+                    } else if task.isDone {
                         // Muted so completed rows recede instead of drawing the eye.
                         Circle().fill(theme.done.opacity(0.32))
                         Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.primary.opacity(0.6))
                     }
                 }
                 .frame(width: 20, height: 20)
+                .scaleEffect(completing ? 1.15 : 1)
+                .animation(.spring(response: 0.28, dampingFraction: 0.55), value: completing)
                 .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -639,8 +737,9 @@ struct TaskRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(task.title)
                         .font(.system(size: 13, weight: task.unread && !task.isDone ? .semibold : .regular))
-                        .strikethrough(task.isDone)
-                        .foregroundStyle(task.isDone ? .secondary : .primary)
+                        .strikethrough(task.isDone || completing)
+                        .foregroundStyle(task.isDone || completing ? .secondary : .primary)
+                        .animation(.easeOut(duration: 0.2), value: completing)
                         .lineLimit(1)
                     if !task.meta.isEmpty && !task.isDone {
                         Text(task.meta).font(.caption2).foregroundStyle(.secondary).lineLimit(1)

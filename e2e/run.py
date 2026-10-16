@@ -104,7 +104,7 @@ def seed(env, db):
     todo = lambda *a: subprocess.run([str(TODO), *a], env=env, check=True, capture_output=True)
     todo("sources", "add", "Slack", "--kind", "Messages", "--instructions", "DMs and mentions that ask me for something")
     todo("sources", "add", "Gmail", "--kind", "Email", "--instructions", "Email from people that needs a reply")
-    todo("add", "Update the estimate on CDI-88", "--due", "Fri", "--source", "Linear")
+    todo("add", "Update the estimate on CDI-88", "-p", "1", "--due", "Fri", "--source", "Linear")
     agent_run(env, "Claude Code", "3 new from Slack, GitHub and Calendar", [
         dict(source_ref="slack:sam-q4", title="Reply to Sam about the Q4 export format", priority=1, due="Today",
              source="Slack", source_url="https://acme.slack.com/archives/C0123/p1700000000000100", source_from="Sam · #cde-ops · 8:40",
@@ -112,6 +112,7 @@ def seed(env, db):
              summary="Sam needs a yes or no on CSV vs Parquet before their pipeline freeze.",
              rationale="A direct ask with a same-day deadline that blocks another team."),
         dict(source_ref="gh:412", title="Review PR #412: connections retry logic", priority=1, source="GitHub",
+             source_url="https://github.com/acme/app/pull/412", source_label="PR #412",
              summary="Two-file change to retry backoff; you are the only reviewer."),
         dict(source_ref="cal:thu", title="Prep notes for Thursday customer call", priority=2, due="Thu", source="Calendar"),
     ])
@@ -284,6 +285,8 @@ def drag_to_reorder_marks_user_ranked(app: App):
     app.cmd("move", title="Submit September expenses", index=0)
     s = app.wait_state(lambda s: s["open"][0]["title"] == "Submit September expenses", "move did not reorder")
     expect(s["open"][0]["userRanked"], "moved task should be marked as placed by the user")
+    expect(s["open"][0]["priority"] == 1, f"dragging a P3 task into the P1 group should make it P1: {s['open'][0]}")
+    expect(s["toast"] == "Moved “Submit September expenses” to P1", f"toast: {s['toast']}")
     app.cmd("undo")
     app.wait_state(lambda s: s["open"][0]["title"] == "Update the estimate on CDI-88", "undo did not restore order")
 
@@ -825,6 +828,115 @@ def schedule_prompt_is_hourly(app: App):
     expect("every hour, on the hour, every day from 08:00 to 18:00" in s["schedulePrompt"], s["schedulePrompt"])
     app.cmd("settings", tab="schedule")
     app.snapshot("settings", "schedule")
+
+
+@spec
+def edit_labels_and_escape_cancels(app: App):
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("open_drawer")
+    app.cmd("select", title="Prep notes")
+    s = app.cmd("key", key="e")
+    s = app.wait_state(lambda s: s["editing"], "e should enter edit mode")
+    app.snapshot("drawer", "editor")
+    s = app.cmd("key", key="escape")
+    expect(not s["editing"], "Esc should cancel the edit")
+    expect(s["selected"] == "Prep notes for Thursday customer call", f"Esc in the editor should stay on the task: {s['selected']}")
+    s = app.cmd("key", key="escape")
+    expect(s["selected"] is None, "a second Esc goes back to the list")
+
+
+@spec
+def priority_without_edit_mode(app: App):
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("open_drawer")
+    app.cmd("select", title="Prep notes")
+    app.snapshot("drawer", "priority-chip")
+    s = app.cmd("key", key="1")
+    expect(s["handled"], "1 should be handled in the detail")
+    app.wait_state(lambda s: next(t for t in s["open"] if t["title"].startswith("Prep notes"))["priority"] == 1, "1 should set P1")
+    app.cmd("back")
+    app.cmd("set_priority", title="Submit September", priority=1)
+    s = app.wait_state(lambda s: next(t for t in s["open"] if t["title"].startswith("Submit"))["priority"] == 1, "set_priority")
+    expect(titles(s["open"]).index("Submit September expenses") < titles(s["open"]).index("Answer the triage question on CONNECT-210"),
+           f"a P1 task sorts above the P2 ones: {titles(s['open'])}")
+    app.snapshot("drawer", "priority-groups")
+    app.cmd("set_order_by_priority", on=False)
+    s = app.wait_state(lambda s: not s["orderByPriority"], "setting should turn off")
+    expect(titles(s["open"])[-1] == "Submit September expenses", f"without priority order the rank order returns: {titles(s['open'])}")
+
+
+@spec
+def description_and_link_names(app: App):
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("open_drawer")
+    app.cmd("update", title="Prep notes", summary="Agenda in https://example.com/agenda and [last call notes](https://example.com/notes).")
+    app.wait_state(lambda s: next(t for t in s["open"] if t["title"].startswith("Prep notes"))["summary"].startswith("Agenda in"),
+                   "description should be saved")
+    app.cmd("select", title="Prep notes")
+    app.snapshot("drawer", "description-links")
+    s = app.cmd("select", title="Review PR #412")
+    t = next(t for t in s["open"] if t["title"].startswith("Review PR #412"))
+    expect(t["sourceLink"] == "PR #412", f"the agent's link name should label the link: {t}")
+    t = next(t for t in s["open"] if t["title"].startswith("Answer the triage"))
+    expect(t["sourceLink"] == "Open in Linear", f"without a name the link falls back to the source: {t}")
+    app.snapshot("drawer", "link-name")
+
+
+@spec
+def search_filters_the_list(app: App):
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("open_drawer")
+    s = app.cmd("key", key="f", modifiers=["command"])
+    expect(s["searching"], "⌘F should open search")
+    s = app.cmd("search", query="slack")
+    expect(s["shown"] == ["Reply to Sam about the Q4 export format"], f"search by source: {s['shown']}")
+    s = app.cmd("search", query="backoff")
+    expect(s["shown"] == ["Review PR #412: connections retry logic"], f"search by description: {s['shown']}")
+    s = app.cmd("search", query="TRIAGE")
+    expect(s["shown"] == ["Answer the triage question on CONNECT-210"], f"search by title, any case: {s['shown']}")
+    app.snapshot("drawer", "results")
+    s = app.cmd("search", query="nothing like this")
+    expect(s["shown"] == [], f"no matches: {s['shown']}")
+    app.snapshot("drawer", "no-matches")
+    s = app.cmd("key", key="escape")
+    expect(not s["searching"] and s["query"] == "" and len(s["shown"]) == 6, f"Esc closes search: {s['searching']} {s['shown']}")
+
+
+@spec
+def agents_cannot_complete_when_protected(app: App):
+    s = app.cmd("set_protect_tasks", on=True)
+    expect(s["protectTasks"], "protection should turn on")
+    expect("turned off agents completing or deleting" in s["runPrompt"], "the run prompt should tell agents")
+    m = Mcp(app.env, "E2E Agent")
+    m.call("start_run", agent="E2E Agent")
+    tasks = json.loads(m.send("tools/call", {"name": "list_tasks", "arguments": {}})["result"]["content"][0]["text"])
+    task_id = next(t["id"] for t in tasks if t["title"].startswith("Submit September"))
+    for tool in ("complete_task", "delete_task"):
+        r = m.send("tools/call", {"name": tool, "arguments": {"id": task_id, "reason": "resolved"}})["result"]
+        expect(r.get("isError"), f"{tool} should be refused: {r}")
+    m.call("finish_run", summary="nothing")
+    m.close()
+    s = app.wait_state(lambda s: "Submit September expenses" in titles(s["open"]), "task should still be open")
+    app.cmd("set_protect_tasks", on=False)
+    app.cmd("settings", tab="general")
+    app.snapshot("settings", "general")
+
+
+@spec
+def hover_gives_the_drawer_the_keyboard(app: App):
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("open_drawer")
+    app.cmd("click_outside")
+    s = app.cmd("hover", inside=True)
+    expect(s["drawerKey"], "hovering should make the drawer key")
+
+
+@spec
+def done_tick_animation(app: App):
+    app.cmd("open_drawer")
+    app.cmd("toggle_done", title="Prep notes")
+    app.wait_state(lambda s: "Prep notes for Thursday customer call" in titles(s["done"]), "task not marked done")
+    app.snapshot("drawer", "after-tick")
 
 
 # ---------------------------------------------------------------------------

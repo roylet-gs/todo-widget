@@ -43,6 +43,8 @@ a = json.loads(call("upsert_task", source_ref="gmail:1", title="Submit expenses"
 call("upsert_task", source_ref="gmail:1", title="Submit September expenses")
 b = json.loads(call("upsert_task", source_ref="slack:9", title="Answer CONNECT-210 triage", priority=1, source="Linear"))["task"]["id"]
 call("reorder_tasks", ordered_ids=[b, a], rationales={b: "Unblocks triage", a: "Due in a week"})
+labelled = json.loads(call("update_task", id=b, source_url="https://linear.app/acme/issue/CONNECT-210", source_label="CONNECT-210"))
+assert labelled["source_label"] == "CONNECT-210", labelled
 call("save_source", name="Slack", kind="Messages", instructions="DMs and mentions that ask me for something")
 call("save_source", name="slack", kind="Messages", instructions="DMs, mentions and #team threads")
 call("save_source", name="Gmail", kind="Email", instructions="Email from people that needs a reply")

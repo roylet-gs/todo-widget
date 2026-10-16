@@ -44,6 +44,18 @@ final class AppModel {
     var quickAddDraft = ""
     var wantsEdit = false
     var wantsSave = false
+    /// The task whose detail is in edit mode. Esc cancels the edit.
+    var editingId: String?
+    /// Tasks whose checkbox was just ticked: they show as done briefly before moving to the Done section.
+    private(set) var completing: Set<String> = []
+    /// The search field above the list, and what it filters by.
+    var searching = false
+    var query = ""
+    var wantsSearchFocus = false
+    /// The core orders the open list by priority (then rank) unless the user turned it off.
+    private(set) var orderByPriority = true
+    /// Only the user may complete or delete tasks; agents are refused.
+    private(set) var protectTasks = false
     var toast: Toast?
     var error: String?
 
@@ -68,12 +80,37 @@ final class AppModel {
 
     var unreadCount: Int { open.filter(\.unread).count }
     var selected: TodoTask? { (open + done).first { $0.id == selectedId } }
+
+    /// The open and done lists as shown: filtered by the search query, if any.
+    var shownOpen: [TodoTask] { filtered(open) }
+    var shownDone: [TodoTask] { filtered(done) }
+    var isFiltering: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private func filtered(_ tasks: [TodoTask]) -> [TodoTask] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return tasks }
+        return tasks.filter { t in
+            [t.title, t.summary, t.source, t.sourceFrom, t.due].compactMap { $0 }.contains { $0.localizedCaseInsensitiveContains(q) }
+        }
+    }
+
+    func beginSearch() {
+        select(nil)
+        searching = true
+        wantsSearchFocus = true
+    }
+
+    func endSearch() {
+        searching = false
+        query = ""
+        ensureHighlight()
+    }
     var highlighted: TodoTask? { (open + done).first { $0.id == highlightedId } }
 
     // MARK: keyboard cursor
 
     /// Rows in the order they appear in the list.
-    var visibleOrder: [TodoTask] { open + (doneExpanded ? done : []) }
+    var visibleOrder: [TodoTask] { shownOpen + (doneExpanded || isFiltering ? shownDone : []) }
 
     func moveHighlight(by delta: Int) {
         let rows = visibleOrder
@@ -116,6 +153,9 @@ final class AppModel {
             let all = try store.listTasks(includeDone: true)
             open = all.filter { $0.status == "open" }
             done = all.filter { $0.status == "done" }
+            completing.subtract(done.map(\.id))
+            orderByPriority = try store.getOrderByPriority()
+            protectTasks = try store.getProtectTasks()
             lastSeenAt = Int64(try store.getSetting(key: "last_seen_at") ?? "") ?? 0
             recentRuns = try store.runsSince(sinceMs: lastSeenAt)
                 .filter { $0.kind == "run" && !$0.events.isEmpty && !$0.undone }
@@ -136,19 +176,33 @@ final class AppModel {
         guard !t.isEmpty else { return }
         perform("Added “\(t)”") {
             _ = try $0.addTask(
-                input: TaskInput(title: t, priority: nil, due: nil, summary: nil, rationale: nil, source: nil, sourceRef: nil, sourceUrl: nil, excerpt: nil, sourceFrom: nil),
+                input: TaskInput(title: t, priority: nil, due: nil, summary: nil, rationale: nil, source: nil, sourceRef: nil, sourceUrl: nil, sourceLabel: nil, excerpt: nil, sourceFrom: nil),
                 actor: "You", runId: nil)
         }
     }
 
     func toggleDone(_ task: TodoTask) {
         let done = task.status != "done"
+        guard !completing.contains(task.id) else { return }
         // Finishing the task you're looking at takes you back to the list.
         if done && selectedId == task.id { selectedId = nil }
-        perform("\(done ? "Completed" : "Reopened") “\(task.title)”") {
-            _ = try $0.setDone(id: task.id, done: done, actor: "You", runId: nil, reason: nil)
+        let write = { [self] in
+            perform("\(done ? "Completed" : "Reopened") “\(task.title)”") {
+                _ = try $0.setDone(id: task.id, done: done, actor: "You", runId: nil, reason: nil)
+            }
+        }
+        // Let the tick land before the row moves to the Done section (e2e checks state right away).
+        guard done && !E2E.enabled else { return write() }
+        completing.insert(task.id)
+        _Concurrency.Task { [weak self] in
+            try? await _Concurrency.Task.sleep(for: .milliseconds(380))
+            guard let self else { return }
+            write()
+            completing.remove(task.id)
         }
     }
+
+    func isCompleting(_ task: TodoTask) -> Bool { completing.contains(task.id) }
 
     func delete(_ task: TodoTask) {
         if selectedId == task.id { selectedId = nil }
@@ -201,10 +255,33 @@ final class AppModel {
         } catch { showToast(errorText(error), undoable: false) }
     }
 
-    /// Drag-and-drop: move `id` to `index` in the open list.
+    func setPriority(_ task: TodoTask, _ priority: UInt8) {
+        guard task.priority != priority else { return }
+        perform("Set “\(task.title)” to P\(priority)") {
+            _ = try $0.updateTask(id: task.id, patch: .edit(priority: priority), actor: "You", runId: nil)
+        }
+    }
+
+    func setOrderByPriority(_ on: Bool) {
+        do { try store.setOrderByPriority(on: on) } catch { self.error = "\(error)" }
+        reload()
+    }
+
+    func setProtectTasks(_ on: Bool) {
+        do { try store.setProtectTasks(on: on) } catch { self.error = "\(error)" }
+        reload()
+    }
+
+    /// Drag-and-drop: move `id` to `index` in the open list. Ordered by priority, the drop can change its priority.
     func move(_ id: String, to index: Int) {
         guard let t = open.first(where: { $0.id == id }), let from = open.firstIndex(where: { $0.id == id }), from != index else { return }
-        perform("Moved “\(t.title)”") { _ = try $0.moveTask(id: id, newIndex: UInt32(max(0, index))) }
+        do {
+            let moved = try store.moveTask(id: id, newIndex: UInt32(max(0, index)))
+            showToast(moved.priority != t.priority ? "Moved “\(t.title)” to P\(moved.priority)" : "Moved “\(t.title)”", undoable: true)
+        } catch {
+            self.error = "\(error)"
+            showToast("\(error)", undoable: false)
+        }
     }
 
     func nudge(_ id: String, by delta: Int) {
@@ -215,6 +292,7 @@ final class AppModel {
     }
 
     func select(_ task: TodoTask?) {
+        if task?.id != selectedId { editingId = nil }
         selectedId = task?.id
         if let task { highlightedId = task.id }
         if let task, task.unread { try? store.markRead(id: task.id) }
@@ -297,6 +375,14 @@ final class AppModel {
     }
 }
 
+extension TaskPatch {
+    /// The fields the user edits in the app; everything else is left unchanged.
+    static func edit(title: String? = nil, priority: UInt8? = nil, due: String? = nil, summary: String? = nil) -> TaskPatch {
+        TaskPatch(title: title, priority: priority, due: due, summary: summary, rationale: nil, source: nil, sourceUrl: nil,
+                  sourceLabel: nil, excerpt: nil, sourceFrom: nil)
+    }
+}
+
 // MARK: - formatting helpers
 
 extension TodoTask {
@@ -304,6 +390,9 @@ extension TodoTask {
 
     /// Added by an agent rather than the user; only these can be rejected.
     var isAgentTask: Bool { addedBy != "You" }
+
+    /// The source link's button text: the agent's name for it, else "Open in <source>".
+    var sourceLinkTitle: String { sourceLabel ?? "Open in \(source ?? "source")" }
 
     var meta: String {
         [source, due].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
