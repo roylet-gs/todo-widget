@@ -15,6 +15,7 @@ final class AppServices {
     let hotkey: HotkeyMonitor
     private var settingsWindow: NSWindow?
     private var setupWindow: NSWindow?
+    private var observedWindows: Set<ObjectIdentifier> = []
     private var e2e: E2EServer?
     private var midnightTimer: Timer?
 
@@ -34,13 +35,19 @@ final class AppServices {
         LoginItem.enableByDefaultOnce()
         // Debug hooks used for screenshots and manual testing.
         let env = ProcessInfo.processInfo.environment
-        if !prefs.setupComplete && env["TODO_WIDGET_SKIP_SETUP"] != "1" && !E2E.enabled { showSetup() }
+        // Present windows after launch finishes, so activation isn't swallowed by the launch itself.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if !self.prefs.setupComplete && env["TODO_WIDGET_SKIP_SETUP"] != "1" && !E2E.enabled { self.showSetup() }
+            if env["TODO_WIDGET_SETTINGS"] == "1" { self.showSettings() }
+        }
         if env["TODO_WIDGET_OPEN"] == "1" { drawer.open() }
-        if env["TODO_WIDGET_SETTINGS"] == "1" { showSettings() }
         if let dir = E2E.dir { e2e = E2EServer(dir: dir, services: self) }
     }
 
     func showSettings(tab: SettingsTab = .general) {
+        // An unpinned drawer hands off to Settings; a pinned one stays open underneath it.
+        if !prefs.pinned { drawer.close() }
         if settingsWindow == nil {
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
@@ -52,9 +59,12 @@ final class AppServices {
             w.center()
             settingsWindow = w
         }
-        settingsWindow?.contentView = NSHostingView(rootView: SettingsView(model: model, prefs: prefs, runner: runner, tab: tab).themed(prefs))
-        NSApp.activate()
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        guard let w = settingsWindow else { return }
+        w.contentView = NSHostingView(rootView: SettingsView(model: model, prefs: prefs, runner: runner, tab: tab).themed(prefs))
+        // Share an always-on-top pinned drawer's level so Settings can sit above it.
+        let drawerLevel = prefs.windowLevel.level
+        w.level = prefs.pinned && drawerLevel > .normal ? drawerLevel : .normal
+        present(w)
     }
 
     func closeSettings() {
@@ -77,13 +87,46 @@ final class AppServices {
         }, step: SetupView.Step(rawValue: step) ?? .welcome).themed(prefs))
         w.center()
         setupWindow = w
-        NSApp.activate()
-        w.makeKeyAndOrderFront(nil)
+        present(w)
     }
 
     func closeSetup() {
         setupWindow?.close()
         setupWindow = nil
+    }
+
+    /// Bring one of our windows to the front. While Settings or setup is open the app acts as a regular app
+    /// (Dock icon, ⌘-Tab, app menu), which macOS needs before it lets a menu bar app come forward.
+    private func present(_ w: NSWindow) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+        w.makeKeyAndOrderFront(nil)
+        // Activation is only a request since macOS 14; make sure the window is in front regardless.
+        w.orderFrontRegardless()
+        installSettingsMenuItem()
+        guard !observedWindows.contains(ObjectIdentifier(w)) else { return }
+        observedWindows.insert(ObjectIdentifier(w))
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.updateActivationPolicy() } }
+        }
+    }
+
+    /// Back to menu-bar-only once neither Settings nor setup is showing.
+    private func updateActivationPolicy() {
+        guard !isSettingsOpen, !isSetupOpen, NSApp.activationPolicy() != .accessory else { return }
+        NSApp.setActivationPolicy(.accessory)
+    }
+
+    /// Put Settings… ⌘, in the app menu, which SwiftUI only adds itself for a `Settings` scene.
+    private func installSettingsMenuItem() {
+        guard let menu = NSApp.mainMenu?.items.first?.submenu,
+              !menu.items.contains(where: { $0.action == #selector(AppDelegate.openSettings(_:)) }) else { return }
+        let item = NSMenuItem(title: "Settings…", action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
+        item.target = NSApp.delegate
+        let aboutIndex = menu.items.firstIndex { $0.title.hasPrefix("About") }
+        let at = aboutIndex.map { $0 + 1 } ?? 0
+        menu.insertItem(.separator(), at: at)
+        menu.insertItem(item, at: at + 1)
     }
 
     /// Reset preferences and stored configuration (and optionally all tasks), then run setup again.
@@ -104,6 +147,7 @@ final class AppServices {
 
     var isSettingsOpen: Bool { settingsWindow?.isVisible == true }
     var isSetupOpen: Bool { setupWindow?.isVisible == true }
+    var settingsLevel: Int { settingsWindow?.level.rawValue ?? 0 }
     var windowNumbers: [String: Int] {
         var w = drawer.windowNumbers
         w["settings"] = settingsWindow?.isVisible == true ? settingsWindow!.windowNumber : 0
@@ -144,6 +188,10 @@ final class AppServices {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    @objc func openSettings(_ sender: Any?) {
+        MainActor.assumeIsolated { AppServices.shared?.showSettings() }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             do {
