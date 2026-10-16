@@ -107,6 +107,8 @@ struct UpsertArgs {
     source: Option<String>,
     /// Permalink to the original message/thread/issue.
     source_url: Option<String>,
+    /// Short name for the link, shown on its button, e.g. "PR #19141" or "Sam's thread".
+    source_label: Option<String>,
     /// Short quote from the original.
     excerpt: Option<String>,
     /// Who/where it came from, e.g. "Sam · #cde-ops · 8:40".
@@ -125,6 +127,8 @@ struct UpdateArgs {
     rationale: Option<String>,
     source: Option<String>,
     source_url: Option<String>,
+    /// Short name for the link, e.g. "PR #19141".
+    source_label: Option<String>,
     excerpt: Option<String>,
     source_from: Option<String>,
     run_id: Option<String>,
@@ -161,6 +165,7 @@ fn task_json(t: &TodoItem) -> serde_json::Value {
         "source": t.source,
         "source_ref": t.source_ref,
         "source_url": t.source_url,
+        "source_label": t.source_label,
         "summary": t.summary,
         "rationale": t.rationale,
         "added_by": t.added_by,
@@ -314,6 +319,7 @@ impl TodoServer {
             source: a.source,
             source_ref: a.source_ref,
             source_url: a.source_url,
+            source_label: a.source_label,
             excerpt: a.excerpt,
             source_from: a.source_from,
         };
@@ -332,6 +338,7 @@ impl TodoServer {
             rationale: a.rationale,
             source: a.source,
             source_url: a.source_url,
+            source_label: a.source_label,
             excerpt: a.excerpt,
             source_from: a.source_from,
         };
@@ -339,7 +346,7 @@ impl TodoServer {
         Ok(task_json(&t).to_string())
     }
 
-    #[tool(description = "Mark a task done because the source shows it is resolved. Give a short reason.")]
+    #[tool(description = "Mark a task done because the source shows it is resolved. Give a short reason. Fails when the user has turned off agents completing tasks.")]
     async fn complete_task(&self, Parameters(a): Parameters<ReasonArgs>) -> ToolResult {
         let run = self.run_for(a.run_id)?;
         let t = self.store.set_done(a.id, true, self.agent(), Some(run), a.reason).map_err(err)?;
@@ -353,7 +360,7 @@ impl TodoServer {
         Ok(task_json(&t).to_string())
     }
 
-    #[tool(description = "Delete a task that is no longer relevant (prefer complete_task when it was resolved). Give a short reason.")]
+    #[tool(description = "Delete a task that is no longer relevant (prefer complete_task when it was resolved). Give a short reason. Fails when the user has turned off agents deleting tasks.")]
     async fn delete_task(&self, Parameters(a): Parameters<ReasonArgs>) -> ToolResult {
         let run = self.run_for(a.run_id)?;
         let t = self.store.delete_task(a.id, self.agent(), Some(run), a.reason).map_err(err)?;

@@ -7,10 +7,12 @@ struct TaskDetailView: View {
     @Environment(\.theme) private var theme
     let task: TodoTask
 
-    @State private var editing = false
     @State private var title = ""
     @State private var priority: UInt8 = 2
     @State private var due = ""
+    @State private var summary = ""
+
+    private var editing: Bool { model.editingId == task.id }
 
     private var rank: Int? { model.open.firstIndex { $0.id == task.id }.map { $0 + 1 } }
     private var history: [ChangeEvent] { (try? model.store.taskHistory(id: task.id)) ?? [] }
@@ -35,9 +37,9 @@ struct TaskDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if editing { editor } else { titleBlock }
-                    if let s = task.summary { section("Summary") { Text(s).textSelection(.enabled) } }
+                    if !editing, let s = task.summary { section("Description") { Text(linkified(s)).textSelection(.enabled) } }
                     if let r = task.rationale {
-                        section("Why it's ranked here") { Text(r) }
+                        section("Why it's ranked here") { Text(linkified(r)) }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)
                             .background(.fill.quaternary, in: .rect(cornerRadius: 16))
@@ -60,6 +62,11 @@ struct TaskDetailView: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 14)
             }
+            // Links in descriptions open like source links: in their desktop app when installed.
+            .environment(\.openURL, OpenURLAction { url in
+                SourceOpener.open(url)
+                return .handled
+            })
 
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
@@ -107,6 +114,8 @@ struct TaskDetailView: View {
             }
             .padding(14)
         }
+        // Opening a task from quick add leaves its field editor focused; keys belong to the task now.
+        .onAppear { if !editing { controller.endTyping() } }
         .onChange(of: model.wantsEdit) { _, w in
             guard w else { return }
             model.wantsEdit = false
@@ -122,12 +131,42 @@ struct TaskDetailView: View {
     private var titleBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(task.title).font(.system(size: 18, weight: .bold)).textSelection(.enabled)
-            FlowChips(items: chips)
+            HStack(alignment: .top, spacing: 6) {
+                if !task.isDone { priorityMenu }
+                FlowChips(items: chips)
+            }
         }
     }
 
+    /// The priority chip doubles as a menu, so priority changes without entering edit mode.
+    private var priorityMenu: some View {
+        Menu {
+            ForEach([UInt8(1), 2, 3], id: \.self) { p in
+                Button { model.setPriority(task, p) } label: {
+                    if p == task.priority { Label("P\(p)", systemImage: "checkmark") } else { Text("P\(p)") }
+                }
+                .menuShortcut(prefs, KeyAction.priority(p))
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text("P\(task.priority)")
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            }
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .foregroundStyle(.white)
+            .background(theme.priority(task.priority), in: Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Change priority (1, 2, 3)")
+        .accessibilityLabel("Priority P\(task.priority)")
+    }
+
     private var chips: [(String, Color?)] {
-        var c: [(String, Color?)] = [("P\(task.priority)", theme.priority(task.priority))]
+        var c: [(String, Color?)] = task.isDone ? [("P\(task.priority)", theme.priority(task.priority))] : []
         if let s = task.source { c.append((s, nil)) }
         if let d = task.due { c.append(("Due \(d)", nil)) }
         c.append(("Added by \(task.addedBy)", nil))
@@ -136,15 +175,31 @@ struct TaskDetailView: View {
     }
 
     private var editor: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            TextField("Title", text: $title, axis: .vertical).textFieldStyle(.roundedBorder)
-            Picker("Priority", selection: $priority) {
-                Text("P1").tag(UInt8(1)); Text("P2").tag(UInt8(2)); Text("P3").tag(UInt8(3))
+        VStack(alignment: .leading, spacing: 12) {
+            field("Title") { TextField("What needs doing", text: $title, axis: .vertical).textFieldStyle(.roundedBorder) }
+            field("Priority") {
+                Picker("Priority", selection: $priority) {
+                    Text("P1").tag(UInt8(1)); Text("P2").tag(UInt8(2)); Text("P3").tag(UInt8(3))
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-            .pickerStyle(.segmented)
-            TextField("Due (e.g. Thu, 2026-10-20)", text: $due).textFieldStyle(.roundedBorder)
+            field("Due date") { TextField("e.g. Thu, 2026-10-20", text: $due).textFieldStyle(.roundedBorder) }
+            field("Description") {
+                TextField("Details, notes or links", text: $summary, axis: .vertical)
+                    .lineLimit(3...8)
+                    .textFieldStyle(.roundedBorder)
+            }
+            Text("\(prefs.key(.save).display) to save · Esc to cancel").font(.caption2).foregroundStyle(.secondary)
         }
         .onAppear { controller.engage() }
+    }
+
+    private func field<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            content()
+        }
     }
 
     private var original: some View {
@@ -153,7 +208,7 @@ struct TaskDetailView: View {
                 if let ex = task.excerpt {
                     VStack(alignment: .leading, spacing: 4) {
                         if let from = task.sourceFrom { Text(from).font(.caption).foregroundStyle(.secondary) }
-                        Text(ex).textSelection(.enabled)
+                        Text(linkified(ex)).textSelection(.enabled)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -162,13 +217,13 @@ struct TaskDetailView: View {
                 if task.sourceUrl != nil {
                     Button { model.openSource(task) } label: {
                         HStack(spacing: 6) {
-                            Label("Open in \(task.source ?? "source")", systemImage: "arrow.up.right").font(.callout.weight(.semibold))
+                            Label(task.sourceLinkTitle, systemImage: "arrow.up.right").font(.callout.weight(.semibold))
                             if prefs.showKeyHints { KeyCap(prefs.key(.openSource).display) }
                         }
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
-                    .keyHelp(prefs, "Open in \(task.source ?? "source")", .openSource)
+                    .keyHelp(prefs, task.sourceLinkTitle, .openSource)
                 }
             }
         }
@@ -200,12 +255,13 @@ struct TaskDetailView: View {
         title = task.title
         priority = task.priority
         due = task.due ?? ""
-        editing = true
+        summary = task.summary ?? ""
+        model.editingId = task.id
     }
 
     private func save() {
-        model.update(task, patch: TaskPatch(title: title, priority: priority, due: due, summary: nil, rationale: nil, source: nil, sourceUrl: nil, excerpt: nil, sourceFrom: nil))
-        editing = false
+        model.update(task, patch: .edit(title: title, priority: priority, due: due, summary: summary))
+        model.editingId = nil
     }
 }
 
@@ -252,4 +308,18 @@ struct FlowLayout: Layout {
             rowH = max(rowH, sz.height)
         }
     }
+}
+
+/// Text with clickable links: markdown `[name](url)` and bare URLs.
+func linkified(_ s: String) -> AttributedString {
+    var a = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+    let plain = String(a.characters)
+    guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return a }
+    for m in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
+        guard let url = m.url, let r = Range(m.range, in: plain) else { continue }
+        let lo = a.index(a.startIndex, offsetByCharacters: plain.distance(from: plain.startIndex, to: r.lowerBound))
+        let hi = a.index(lo, offsetByCharacters: plain.distance(from: r.lowerBound, to: r.upperBound))
+        if a[lo..<hi].link == nil { a[lo..<hi].link = url }
+    }
+    return a
 }

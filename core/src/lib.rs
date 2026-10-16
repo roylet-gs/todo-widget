@@ -181,6 +181,13 @@ CREATE TABLE learnings (
 );
 "#;
 
+/// Version 3: a short display name for a task's source link.
+const SCHEMA_V3: &str = "ALTER TABLE tasks ADD COLUMN source_label TEXT;";
+
+/// Settings keys for the two list behaviours the user can switch.
+const ORDER_BY_PRIORITY: &str = "order_by_priority";
+const PROTECT_TASKS: &str = "protect_tasks";
+
 /// Caps on what an agent may save, so the notes stay small enough to send on every run.
 pub const MAX_LEARNINGS: usize = 25;
 pub const MAX_LEARNING_CHARS: usize = 300;
@@ -192,7 +199,7 @@ const LIVE_FEEDBACK: &str = "SELECT f.id, f.task_id, f.kind, f.title, f.source, 
   WHERE e.undone = 0 AND (f.kind = 'rejected' OR t.status = 'done')
   ORDER BY f.created_at DESC, f.id DESC";
 
-const TASK_COLS: &str = "id, title, rank, priority, due, status, summary, rationale, source, source_ref, source_url, excerpt, source_from, unread, last_move, added_by, updated_by, user_ranked_at, done_at, archived_at, created_at, updated_at";
+const TASK_COLS: &str = "id, title, rank, priority, due, status, summary, rationale, source, source_ref, source_url, excerpt, source_from, unread, last_move, added_by, updated_by, user_ranked_at, done_at, archived_at, created_at, updated_at, source_label";
 
 fn row_to_task(r: &Row) -> rusqlite::Result<TodoItem> {
     Ok(TodoItem {
@@ -218,6 +225,7 @@ fn row_to_task(r: &Row) -> rusqlite::Result<TodoItem> {
         archived_at: r.get(19)?,
         created_at: r.get(20)?,
         updated_at: r.get(21)?,
+        source_label: r.get(22)?,
     })
 }
 
@@ -228,23 +236,34 @@ fn read_task(c: &Connection, id: &str) -> Result<Option<TodoItem>> {
 
 fn write_task(c: &Connection, t: &TodoItem) -> Result<()> {
     c.execute(
-        &format!("INSERT OR REPLACE INTO tasks ({TASK_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)"),
+        &format!("INSERT OR REPLACE INTO tasks ({TASK_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)"),
         params![
             t.id, t.title, t.rank, t.priority as i64, t.due, t.status, t.summary, t.rationale,
             t.source, t.source_ref, t.source_url, t.excerpt, t.source_from, t.unread as i64,
             t.last_move, t.added_by, t.updated_by, t.user_ranked_at, t.done_at, t.archived_at,
-            t.created_at, t.updated_at
+            t.created_at, t.updated_at, t.source_label
         ],
     )?;
     Ok(())
 }
 
+/// Open tasks in list order: by rank, or by priority then rank when the user orders by priority.
 fn open_tasks(c: &Connection) -> Result<Vec<TodoItem>> {
+    let order = if order_by_priority(c)? { "priority, rank, created_at" } else { "rank, created_at" };
     let mut st = c.prepare(&format!(
-        "SELECT {TASK_COLS} FROM tasks WHERE status = 'open' AND archived_at IS NULL ORDER BY rank, created_at"
+        "SELECT {TASK_COLS} FROM tasks WHERE status = 'open' AND archived_at IS NULL ORDER BY {order}"
     ))?;
     let rows = st.query_map([], row_to_task)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+fn setting_in(c: &Connection, key: &str) -> Result<Option<String>> {
+    Ok(c.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+}
+
+/// On unless the user turned it off.
+fn order_by_priority(c: &Connection) -> Result<bool> {
+    Ok(setting_in(c, ORDER_BY_PRIORITY)?.as_deref() != Some("0"))
 }
 
 fn clamp_priority(p: Option<u8>) -> u8 {
@@ -314,6 +333,9 @@ impl TodoStore {
         }
         if version < 2 {
             conn.execute_batch(&format!("BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"))?;
+        }
+        if version < 3 {
+            conn.execute_batch(&format!("BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"))?;
         }
         Ok(Arc::new(Self { conn: Mutex::new(conn), path }))
     }
@@ -391,6 +413,7 @@ impl TodoStore {
                         (&mut t.rationale, &input.rationale),
                         (&mut t.source, &input.source),
                         (&mut t.source_url, &input.source_url),
+                        (&mut t.source_label, &input.source_label),
                         (&mut t.excerpt, &input.excerpt),
                         (&mut t.source_from, &input.source_from),
                     ] {
@@ -432,6 +455,7 @@ impl TodoStore {
                 (&mut t.rationale, &patch.rationale),
                 (&mut t.source, &patch.source),
                 (&mut t.source_url, &patch.source_url),
+                (&mut t.source_label, &patch.source_label),
                 (&mut t.excerpt, &patch.excerpt),
                 (&mut t.source_from, &patch.source_from),
             ] {
@@ -447,6 +471,9 @@ impl TodoStore {
     }
 
     pub fn set_done(&self, id: String, done: bool, actor: String, run_id: Option<String>, reason: Option<String>) -> Result<TodoItem> {
+        if done {
+            self.check_agent_may_remove(&actor)?;
+        }
         self.write(&actor, run_id, |cx| {
             let id = Self::resolve_in(cx.c, &id)?;
             let before = read_task(cx.c, &id)?.ok_or(TodoError::NotFound(id.clone()))?;
@@ -474,6 +501,7 @@ impl TodoStore {
     }
 
     pub fn delete_task(&self, id: String, actor: String, run_id: Option<String>, reason: Option<String>) -> Result<TodoItem> {
+        self.check_agent_may_remove(&actor)?;
         self.write(&actor, run_id, |cx| {
             let id = Self::resolve_in(cx.c, &id)?;
             let before = read_task(cx.c, &id)?.ok_or(TodoError::NotFound(id.clone()))?;
@@ -554,21 +582,35 @@ impl TodoStore {
         }, |n| format!("Reordered {n} tasks"))
     }
 
-    /// User drag: move a task to `new_index` (0-based) in the open list.
+    /// User drag: move a task to `new_index` (0-based) in the open list. When the list is ordered by
+    /// priority, dropping a task among another priority's tasks gives it that priority: moving down it
+    /// joins the task now above it, moving up the task now below it.
     pub fn move_task(&self, id: String, new_index: u32) -> Result<TodoItem> {
         self.write(USER, None, |cx| {
             let id = Self::resolve_in(cx.c, &id)?;
             let before = read_task(cx.c, &id)?.ok_or(TodoError::NotFound(id.clone()))?;
-            let others: Vec<TodoItem> = open_tasks(cx.c)?.into_iter().filter(|t| t.id != id).collect();
+            let all = open_tasks(cx.c)?;
+            let from = all.iter().position(|t| t.id == id);
+            let others: Vec<TodoItem> = all.into_iter().filter(|t| t.id != id).collect();
             let i = (new_index as usize).min(others.len());
-            let rank = match (i.checked_sub(1).and_then(|p| others.get(p)), others.get(i)) {
+            let (prev, next) = (i.checked_sub(1).and_then(|p| others.get(p)), others.get(i));
+            let by_priority = order_by_priority(cx.c)?;
+            let mut t = before.clone();
+            if by_priority && let Some(f) = from && i != f {
+                let joined = if i > f { prev.or(next) } else { next.or(prev) };
+                if let Some(n) = joined {
+                    t.priority = n.priority;
+                }
+            }
+            // Only neighbours in the task's (possibly new) priority group bound its rank.
+            let p = t.priority;
+            let in_group = |n: &&TodoItem| !by_priority || n.priority == p;
+            t.rank = match (prev.filter(in_group), next.filter(in_group)) {
                 (None, None) => 1.0,
                 (None, Some(next)) => next.rank - 1.0,
                 (Some(prev), None) => prev.rank + 1.0,
                 (Some(prev), Some(next)) => (prev.rank + next.rank) / 2.0,
             };
-            let mut t = before.clone();
-            t.rank = rank;
             t.user_ranked_at = Some(cx.now);
             t.last_move = 0;
             t.unread = false;
@@ -576,8 +618,11 @@ impl TodoStore {
             t.updated_at = cx.now;
             write_task(cx.c, &t)?;
             cx.log("move", &t.id, Some(&before), Some(&t), None)?;
-            Ok(t)
-        }, |t| format!("Moved “{}”", t.title))
+            Ok((t, before.priority))
+        }, |(t, old)| {
+            if t.priority != *old { format!("Moved “{}” to P{}", t.title, t.priority) } else { format!("Moved “{}”", t.title) }
+        })
+        .map(|(t, _)| t)
     }
 
     /// Opening a task marks it read. Not undoable, not logged.
@@ -1027,8 +1072,9 @@ impl TodoStore {
         };
         let now = Local::now().format("%A %Y-%m-%d %H:%M").to_string();
         let filled = prompt::fill(&template, &[("sources", &sources), ("last_run", &last_run), ("now", &now)]);
+        let settings = prompt::render_settings(self.get_order_by_priority()?, self.get_protect_tasks()?);
         let learning = prompt::render_learning(&self.list_learnings()?, &self.list_feedback()?);
-        Ok(format!("{}\n\n{learning}", filled.trim_end()))
+        Ok(format!("{}\n\n{settings}{learning}", filled.trim_end()))
     }
 
     /// The prompt to run once in any agent to discover and save sources.
@@ -1058,9 +1104,33 @@ impl TodoStore {
         Ok(())
     }
 
+    /// Whether the open list is ordered by priority first (the default), so dragging a task into
+    /// another priority's group changes its priority.
+    pub fn get_order_by_priority(&self) -> Result<bool> {
+        let c = self.conn.lock().unwrap();
+        order_by_priority(&c)
+    }
+
+    pub fn set_order_by_priority(&self, on: bool) -> Result<()> {
+        self.set_setting(ORDER_BY_PRIORITY.into(), if on { "1" } else { "0" }.into())?;
+        notify::post_changed();
+        Ok(())
+    }
+
+    /// When on, agents may not complete or delete tasks; only the user can. Off by default.
+    pub fn get_protect_tasks(&self) -> Result<bool> {
+        Ok(self.get_setting(PROTECT_TASKS.into())?.as_deref() == Some("1"))
+    }
+
+    pub fn set_protect_tasks(&self, on: bool) -> Result<()> {
+        self.set_setting(PROTECT_TASKS.into(), if on { "1" } else { "0" }.into())?;
+        notify::post_changed();
+        Ok(())
+    }
+
     pub fn get_setting(&self, key: String) -> Result<Option<String>> {
         let c = self.conn.lock().unwrap();
-        Ok(c.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+        setting_in(&c, &key)
     }
 
     pub fn set_setting(&self, key: String, value: String) -> Result<()> {
@@ -1153,6 +1223,16 @@ impl TodoStore {
         Ok(())
     }
 
+    /// With protection on, only the user completes or deletes tasks.
+    fn check_agent_may_remove(&self, actor: &str) -> Result<()> {
+        if !actor.trim().is_empty() && !is_user(actor) && self.get_protect_tasks()? {
+            return Err(TodoError::Invalid(
+                "the user has turned off agents completing or deleting tasks: leave this task open and mention it in your finish_run summary".into(),
+            ));
+        }
+        Ok(())
+    }
+
     fn insert_new(cx: &Ctx, input: &TaskInput) -> Result<TodoItem> {
         if input.title.trim().is_empty() {
             return Err(TodoError::Invalid("title is required".into()));
@@ -1171,6 +1251,7 @@ impl TodoStore {
             source: input.source.clone().filter(|s| !s.trim().is_empty()),
             source_ref: input.source_ref.clone().filter(|s| !s.trim().is_empty()),
             source_url: input.source_url.clone().filter(|s| !s.trim().is_empty()),
+            source_label: input.source_label.clone().filter(|s| !s.trim().is_empty()),
             excerpt: input.excerpt.clone().filter(|s| !s.trim().is_empty()),
             source_from: input.source_from.clone().filter(|s| !s.trim().is_empty()),
             unread: !user,

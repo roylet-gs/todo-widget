@@ -14,7 +14,8 @@ pub const DEFAULT_PROMPT: &str = r#"You maintain my todo list using the "todo" M
 3. Call get_changes_since({{last_run}}) and respect my edits. Never reopen
    a task I completed and never re-add one I deleted.
 4. For each actionable item, call upsert_task with a stable source_ref, the
-   permalink as source_url, a short excerpt, who it came from, and a
+   permalink as source_url, a short source_label naming the link (for example
+   "PR #19141" or "Sam's thread"), a short excerpt, who it came from, and a
    2-sentence summary. Follow what you've learned about my preferences
    (below) when deciding what is worth adding.
 5. Call complete_task for tasks the source shows are resolved, with a reason.
@@ -98,6 +99,26 @@ pub fn render_sources(sources: &[Source]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Rules that come from the user's settings in the app, appended to every run prompt.
+pub fn render_settings(order_by_priority: bool, protect_tasks: bool) -> String {
+    let mut out = String::new();
+    if order_by_priority {
+        out.push_str(
+            "My list is ordered by priority first (P1, then P2, then P3) and by rank within each\n\
+             priority. When I change a task's priority, that was deliberate: keep it unless something\n\
+             new happened on the task.\n\n",
+        );
+    }
+    if protect_tasks {
+        out.push_str(
+            "I've turned off agents completing or deleting tasks: complete_task and delete_task will\n\
+             fail. Leave resolved tasks open, update them with what changed, and mention them in your\n\
+             finish_run summary instead.\n\n",
+        );
+    }
+    out
 }
 
 /// Most feedback items sent in one prompt; older ones wait for a later run.

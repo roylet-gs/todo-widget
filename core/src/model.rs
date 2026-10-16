@@ -19,6 +19,9 @@ pub struct TodoItem {
     /// Stable external id used to de-duplicate agent upserts.
     pub source_ref: Option<String>,
     pub source_url: Option<String>,
+    /// Short name for the source link, e.g. "PR #19141"; the app falls back to "Open in <source>".
+    #[serde(default)]
+    pub source_label: Option<String>,
     pub excerpt: Option<String>,
     /// Who/where the original came from, e.g. "Sam · #cde-ops · 8:40".
     pub source_from: Option<String>,
@@ -45,6 +48,7 @@ pub struct TaskInput {
     pub source: Option<String>,
     pub source_ref: Option<String>,
     pub source_url: Option<String>,
+    pub source_label: Option<String>,
     pub excerpt: Option<String>,
     pub source_from: Option<String>,
 }
@@ -59,6 +63,7 @@ pub struct TaskPatch {
     pub rationale: Option<String>,
     pub source: Option<String>,
     pub source_url: Option<String>,
+    pub source_label: Option<String>,
     pub excerpt: Option<String>,
     pub source_from: Option<String>,
 }

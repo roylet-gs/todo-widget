@@ -192,6 +192,24 @@ final class E2EServer {
             _ = try s.model.store.addLearning(text: cmd["text"] as? String ?? "")
         case "move":
             s.model.move(try task(cmd).id, to: cmd["index"] as? Int ?? 0)
+        case "update":
+            // As if saved from the editor; omitted fields are unchanged.
+            s.model.update(try task(cmd), patch: .edit(title: cmd["newTitle"] as? String, priority: (cmd["priority"] as? Int).map(UInt8.init),
+                                                       due: cmd["due"] as? String, summary: cmd["summary"] as? String))
+        case "set_priority":
+            s.model.setPriority(try task(cmd), UInt8(cmd["priority"] as? Int ?? 2))
+        case "search":
+            if !s.model.searching { s.drawer.keys.perform(.search) }
+            s.model.query = cmd["query"] as? String ?? ""
+        case "end_search":
+            s.model.endSearch()
+        case "set_order_by_priority":
+            s.model.setOrderByPriority(cmd["on"] as? Bool ?? true)
+        case "set_protect_tasks":
+            s.model.setProtectTasks(cmd["on"] as? Bool ?? false)
+        case "hover":
+            // The drawer's pointer tracking, as if the pointer moved onto (or off) it.
+            if cmd["inside"] as? Bool ?? true { s.drawer.pointerEntered() } else { s.drawer.pointerExited() }
         case "add":
             s.model.add(cmd["title"] as? String ?? "")
         case "undo":
@@ -329,7 +347,8 @@ final class E2EServer {
         let lastSeen = m.lastSeenAt
         func t(_ x: TodoTask) -> [String: Any] {
             ["title": x.title, "unread": x.unread, "status": x.status, "priority": Int(x.priority),
-             "chip": x.chip(lastSeen: lastSeen) ?? "", "addedBy": x.addedBy, "userRanked": x.userRankedAt != nil]
+             "chip": x.chip(lastSeen: lastSeen) ?? "", "addedBy": x.addedBy, "userRanked": x.userRankedAt != nil,
+             "summary": x.summary ?? "", "sourceLink": x.sourceUrl == nil ? "" : x.sourceLinkTitle]
         }
         return [
             "open": m.open.map(t),
@@ -346,6 +365,13 @@ final class E2EServer {
             "selected": m.selected?.title ?? NSNull(),
             "highlighted": m.highlighted?.title ?? NSNull(),
             "doneExpanded": m.doneExpanded,
+            "editing": m.editingId != nil,
+            "searching": m.searching,
+            "query": m.query,
+            "shown": m.visibleOrder.map(\.title),
+            "orderByPriority": m.orderByPriority,
+            "protectTasks": m.protectTasks,
+            "drawerKey": s.drawer.drawerIsKey,
             "shortcutsOpen": m.showShortcuts,
             "typing": s.drawer.keys.typing,
             "quickAddDraft": m.quickAddDraft,

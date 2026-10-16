@@ -182,8 +182,11 @@ enum KeyGroup: String, CaseIterable {
 enum KeyAction: String, CaseIterable, Codable, Identifiable {
     case toggleWidget
     case previous, next, first, last, open, openSource, back
-    case toggleDone, delete, reject, edit, save, moveUp, moveDown, newTask
-    case toggleDoneSection, undo, redo, pin, runNow, settings, shortcuts
+    case toggleDone, delete, reject, edit, save, moveUp, moveDown, priority1, priority2, priority3, newTask
+    case search, toggleDoneSection, undo, redo, pin, runNow, settings, shortcuts
+
+    /// The action that sets priority `p` (1–3).
+    static func priority(_ p: UInt8) -> KeyAction { p <= 1 ? .priority1 : p == 2 ? .priority2 : .priority3 }
 
     var id: String { rawValue }
 
@@ -204,7 +207,11 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .save: "Save edits"
         case .moveUp: "Move task up"
         case .moveDown: "Move task down"
+        case .priority1: "Set priority P1"
+        case .priority2: "Set priority P2"
+        case .priority3: "Set priority P3"
         case .newTask: "New task"
+        case .search: "Search tasks"
         case .toggleDoneSection: "Show or hide done tasks"
         case .undo: "Undo"
         case .redo: "Redo"
@@ -219,8 +226,8 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .toggleWidget: .global
         case .previous, .next, .first, .last, .open, .openSource, .back: .navigate
-        case .toggleDone, .delete, .reject, .edit, .save, .moveUp, .moveDown, .newTask: .tasks
-        case .toggleDoneSection, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
+        case .toggleDone, .delete, .reject, .edit, .save, .moveUp, .moveDown, .priority1, .priority2, .priority3, .newTask: .tasks
+        case .search, .toggleDoneSection, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
         }
     }
 
@@ -229,7 +236,7 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .toggleWidget: .global
         case .previous, .next, .first, .last, .open, .moveUp, .moveDown, .toggleDoneSection: .list
         case .edit, .save: .detail
-        case .openSource, .toggleDone, .delete, .reject, .back, .newTask, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
+        case .openSource, .toggleDone, .delete, .reject, .back, .newTask, .search, .priority1, .priority2, .priority3, .undo, .redo, .pin, .runNow, .settings, .shortcuts: .drawer
         }
     }
 
@@ -250,7 +257,11 @@ enum KeyAction: String, CaseIterable, Codable, Identifiable {
         case .save: KeyBinding("return", [.command])
         case .moveUp: KeyBinding("up", [.option, .command])
         case .moveDown: KeyBinding("down", [.option, .command])
+        case .priority1: KeyBinding("1")
+        case .priority2: KeyBinding("2")
+        case .priority3: KeyBinding("3")
         case .newTask: KeyBinding("n", [.command])
+        case .search: KeyBinding("f", [.command])
         case .toggleDoneSection: KeyBinding("d", [.command])
         case .undo: KeyBinding("z", [.command])
         case .redo: KeyBinding("z", [.shift, .command])

@@ -41,6 +41,9 @@ enum Cmd {
         source: Option<String>,
         #[arg(long)]
         url: Option<String>,
+        /// Short name for the link, e.g. "PR #19141".
+        #[arg(long)]
+        label: Option<String>,
     },
     /// Show one task. IDs accept a position (1, 2, …) or a unique id prefix.
     Show { id: String },
@@ -164,13 +167,13 @@ fn main() -> Result<()> {
                 print_task_line(i, t);
             }
         }
-        Cmd::Add { title, priority, due, source, url } => {
+        Cmd::Add { title, priority, due, source, url, label } => {
             let title = title.join(" ");
             if title.trim().is_empty() {
                 bail!("title is required");
             }
             let t = store.add_task(
-                TaskInput { title, priority, due, source, source_url: url, ..Default::default() },
+                TaskInput { title, priority, due, source, source_url: url, source_label: label, ..Default::default() },
                 actor,
                 None,
             )?;
@@ -190,6 +193,7 @@ fn main() -> Result<()> {
                 ("source", &t.source),
                 ("from", &t.source_from),
                 ("link", &t.source_url),
+                ("link name", &t.source_label),
                 ("summary", &t.summary),
                 ("why", &t.rationale),
                 ("excerpt", &t.excerpt),
