@@ -32,6 +32,9 @@ pub struct TodoItem {
     pub updated_by: String,
     pub user_ranked_at: Option<i64>,
     pub done_at: Option<i64>,
+    /// Who completed it: "You" or the agent's name. `None` while open.
+    #[serde(default)]
+    pub done_by: Option<String>,
     pub archived_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,

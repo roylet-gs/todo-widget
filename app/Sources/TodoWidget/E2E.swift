@@ -154,7 +154,7 @@ final class E2EServer {
     private func task(_ cmd: [String: Any]) throws -> TodoTask {
         let title = cmd["title"] as? String ?? ""
         let m = services.model
-        guard let t = (m.open + m.done).first(where: { $0.title.localizedCaseInsensitiveContains(title) }) else {
+        guard let t = (m.open + m.agentDone + m.done).first(where: { $0.title.localizedCaseInsensitiveContains(title) }) else {
             throw Failure(description: "no task matching '\(title)'")
         }
         return t
@@ -363,6 +363,7 @@ final class E2EServer {
         return [
             "open": m.open.map(t),
             "done": m.done.map(t),
+            "agentDone": m.agentDone.map(t),
             "unread": m.unreadCount,
             "recentRuns": m.recentRuns.map { ["actor": $0.actor, "stats": $0.statsText, "summary": $0.summary ?? ""] },
             "sources": m.sources.map { ["id": $0.id, "name": $0.name, "kind": $0.kind, "instructions": $0.instructions, "enabled": $0.enabled] },
@@ -375,6 +376,7 @@ final class E2EServer {
             "selected": m.selected?.title ?? NSNull(),
             "highlighted": m.highlighted?.title ?? NSNull(),
             "doneExpanded": m.doneExpanded,
+            "agentDoneExpanded": m.agentDoneExpanded,
             "editing": m.editingId != nil,
             "searching": m.searching,
             "query": m.query,

@@ -183,6 +183,9 @@ CREATE TABLE learnings (
 
 /// Version 3: a short display name for a task's source link.
 const SCHEMA_V3: &str = "ALTER TABLE tasks ADD COLUMN source_label TEXT;";
+/// Who completed a done task. Before this, `updated_by` is the best guess.
+const SCHEMA_V4: &str = "ALTER TABLE tasks ADD COLUMN done_by TEXT;
+UPDATE tasks SET done_by = updated_by WHERE status = 'done';";
 
 /// Settings keys for the two list behaviours the user can switch.
 const ORDER_BY_PRIORITY: &str = "order_by_priority";
@@ -199,7 +202,7 @@ const LIVE_FEEDBACK: &str = "SELECT f.id, f.task_id, f.kind, f.title, f.source, 
   WHERE e.undone = 0 AND (f.kind = 'rejected' OR t.status = 'done')
   ORDER BY f.created_at DESC, f.id DESC";
 
-const TASK_COLS: &str = "id, title, rank, priority, due, status, summary, rationale, source, source_ref, source_url, excerpt, source_from, unread, last_move, added_by, updated_by, user_ranked_at, done_at, archived_at, created_at, updated_at, source_label";
+const TASK_COLS: &str = "id, title, rank, priority, due, status, summary, rationale, source, source_ref, source_url, excerpt, source_from, unread, last_move, added_by, updated_by, user_ranked_at, done_at, archived_at, created_at, updated_at, source_label, done_by";
 
 fn row_to_task(r: &Row) -> rusqlite::Result<TodoItem> {
     Ok(TodoItem {
@@ -226,6 +229,7 @@ fn row_to_task(r: &Row) -> rusqlite::Result<TodoItem> {
         created_at: r.get(20)?,
         updated_at: r.get(21)?,
         source_label: r.get(22)?,
+        done_by: r.get(23)?,
     })
 }
 
@@ -236,12 +240,12 @@ fn read_task(c: &Connection, id: &str) -> Result<Option<TodoItem>> {
 
 fn write_task(c: &Connection, t: &TodoItem) -> Result<()> {
     c.execute(
-        &format!("INSERT OR REPLACE INTO tasks ({TASK_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)"),
+        &format!("INSERT OR REPLACE INTO tasks ({TASK_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)"),
         params![
             t.id, t.title, t.rank, t.priority as i64, t.due, t.status, t.summary, t.rationale,
             t.source, t.source_ref, t.source_url, t.excerpt, t.source_from, t.unread as i64,
             t.last_move, t.added_by, t.updated_by, t.user_ranked_at, t.done_at, t.archived_at,
-            t.created_at, t.updated_at, t.source_label
+            t.created_at, t.updated_at, t.source_label, t.done_by
         ],
     )?;
     Ok(())
@@ -336,6 +340,9 @@ impl TodoStore {
         }
         if version < 3 {
             conn.execute_batch(&format!("BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"))?;
+        }
+        if version < 4 {
+            conn.execute_batch(&format!("BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"))?;
         }
         Ok(Arc::new(Self { conn: Mutex::new(conn), path }))
     }
@@ -480,6 +487,7 @@ impl TodoStore {
             let mut t = before.clone();
             t.status = if done { "done" } else { "open" }.into();
             t.done_at = done.then_some(cx.now);
+            t.done_by = done.then(|| cx.actor.clone());
             t.archived_at = None;
             t.updated_by = cx.actor.clone();
             t.updated_at = cx.now;
@@ -1268,6 +1276,7 @@ impl TodoStore {
             updated_by: cx.actor.clone(),
             user_ranked_at: None,
             done_at: None,
+            done_by: None,
             archived_at: None,
             created_at: cx.now,
             updated_at: cx.now,
