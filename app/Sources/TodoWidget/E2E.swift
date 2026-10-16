@@ -368,6 +368,10 @@ final class E2EServer {
             "drawerWidth": s.prefs.drawerWidth,
             "settingsOpen": s.isSettingsOpen,
             "setupOpen": s.isSetupOpen,
+            "activationPolicy": NSApp.activationPolicy() == .regular ? "regular" : "accessory",
+            "settingsLevel": s.settingsLevel,
+            "drawerLevel": s.drawer.panel("drawer")?.level.rawValue ?? 0,
+            "appMenuHasSettings": NSApp.mainMenu?.items.first?.submenu?.items.contains { $0.title == "Settings…" } ?? false,
             "windows": s.windowNumbers,
         ]
     }

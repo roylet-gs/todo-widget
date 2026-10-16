@@ -381,6 +381,29 @@ def settings_tabs(app: App):
 
 
 @spec
+def settings_handoff(app: App):
+    # Unpinned: opening Settings collapses the drawer, and the app turns regular (Dock icon, app menu) meanwhile.
+    app.cmd("open_drawer")
+    s = app.cmd("settings")
+    expect(s["settingsOpen"], "settings did not open")
+    s = app.wait_state(lambda s: not s["drawerOpen"], "unpinned drawer should collapse when settings opens")
+    expect(s["activationPolicy"] == "regular", f"policy while settings open: {s['activationPolicy']}")
+    expect(s["appMenuHasSettings"], "app menu should offer Settings…")
+    app.cmd("close_settings")
+    app.wait_state(lambda s: s["activationPolicy"] == "accessory", "should go back to menu-bar-only once settings closes")
+    # Pinned: the drawer stays open and Settings sits at (at least) its level, ordered above it.
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("open_drawer")
+    s = app.cmd("settings")
+    app.settle()
+    s = app.state()
+    expect(s["drawerOpen"], "pinned drawer should stay open when settings opens")
+    expect(s["settingsLevel"] >= s["drawerLevel"], f"settings level {s['settingsLevel']} below drawer {s['drawerLevel']}")
+    app.snapshot("settings", "over-pinned-drawer")
+    app.cmd("close_settings")
+
+
+@spec
 def keyboard_navigate_and_open(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     s = app.cmd("open_drawer")
