@@ -306,6 +306,31 @@ def live_update_from_agent(app: App):
 
 
 @spec
+def agent_done_section(app: App):
+    app.cmd("set_pref", key="pinned", value=True)
+    app.cmd("open_drawer")
+    # The user completes one task; an agent completes another through the MCP.
+    app.cmd("toggle_done", title="Prep notes")
+    m = Mcp(app.env, "Hermes")
+    m.call("start_run", agent="Hermes")
+    task = next(t for t in json.loads(m.call("list_tasks")) if t["title"].startswith("Review PR #412"))
+    m.call("complete_task", id=task["id"], reason="PR merged")
+    m.call("finish_run", summary="1 done")
+    m.close()
+    s = app.wait_state(lambda s: "Review PR #412: connections retry logic" in titles(s["agentDone"]),
+                       "agent-completed task should be in the agent done section")
+    expect(titles(s["done"]) == ["Prep notes for Thursday customer call"], f"user done: {titles(s['done'])}")
+    expect(s["agentDoneExpanded"] and not s["doneExpanded"], "agent done section open, user done section collapsed")
+    app.snapshot("drawer", "agent-done")
+    # Both clear like any done task once they're old enough.
+    with sqlite3.connect(app.db) as c:
+        c.execute("UPDATE tasks SET done_at = 1 WHERE status = 'done'")
+    app.cmd("close_drawer")
+    app.cmd("open_drawer")
+    app.wait_state(lambda s: not s["agentDone"] and not s["done"], "done tasks of both kinds should clear")
+
+
+@spec
 def sticky_tab_drag_snaps_to_edges(app: App):
     s = app.state()
     screen, tab0 = s["screen"], s["tabFrame"]

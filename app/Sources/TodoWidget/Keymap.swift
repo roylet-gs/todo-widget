@@ -353,6 +353,12 @@ extension View {
         help(prefs.tooltip(title, a)).accessibilityHint("Shortcut: \(prefs.key(a).spoken)")
     }
 
+    /// `keyHelp` when there is a shortcut, else a plain tooltip.
+    @ViewBuilder
+    func optionalKeyHelp(_ prefs: Preferences, _ title: String, _ a: KeyAction?) -> some View {
+        if let a { keyHelp(prefs, title, a) } else { help(title) }
+    }
+
     /// Shows the binding next to a context-menu or menu item.
     @ViewBuilder
     func menuShortcut(_ prefs: Preferences, _ a: KeyAction) -> some View {

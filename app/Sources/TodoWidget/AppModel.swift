@@ -17,7 +17,10 @@ final class AppModel {
     let prefs: Preferences
 
     private(set) var open: [TodoTask] = []
+    /// Done tasks the user completed (or that predate who-completed tracking).
     private(set) var done: [TodoTask] = []
+    /// Done tasks an agent completed. Shown in their own section, expanded, so they don't seem to vanish.
+    private(set) var agentDone: [TodoTask] = []
     /// Agent runs since the user last dismissed the "what changed" strip.
     private(set) var recentRuns: [ChangeGroup] = []
     private(set) var lastSeenAt: Int64 = 0
@@ -32,6 +35,7 @@ final class AppModel {
     /// pointer (scrolling, reordering, the drawer opening) mustn't steal the cursor back.
     @ObservationIgnored var pointerAtKeyboard: NSPoint?
     var doneExpanded = false
+    var agentDoneExpanded = true
     /// The keyboard shortcuts overlay.
     var showShortcuts = false
     /// The agent task being rejected; shows the reject panel over the drawer.
@@ -79,11 +83,12 @@ final class AppModel {
     }
 
     var unreadCount: Int { open.filter(\.unread).count }
-    var selected: TodoTask? { (open + done).first { $0.id == selectedId } }
+    var selected: TodoTask? { (open + agentDone + done).first { $0.id == selectedId } }
 
     /// The open and done lists as shown: filtered by the search query, if any.
     var shownOpen: [TodoTask] { filtered(open) }
     var shownDone: [TodoTask] { filtered(done) }
+    var shownAgentDone: [TodoTask] { filtered(agentDone) }
     var isFiltering: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func filtered(_ tasks: [TodoTask]) -> [TodoTask] {
@@ -105,12 +110,14 @@ final class AppModel {
         query = ""
         ensureHighlight()
     }
-    var highlighted: TodoTask? { (open + done).first { $0.id == highlightedId } }
+    var highlighted: TodoTask? { (open + agentDone + done).first { $0.id == highlightedId } }
 
     // MARK: keyboard cursor
 
     /// Rows in the order they appear in the list.
-    var visibleOrder: [TodoTask] { shownOpen + (doneExpanded || isFiltering ? shownDone : []) }
+    var visibleOrder: [TodoTask] {
+        shownOpen + (agentDoneExpanded || isFiltering ? shownAgentDone : []) + (doneExpanded || isFiltering ? shownDone : [])
+    }
 
     func moveHighlight(by delta: Int) {
         let rows = visibleOrder
@@ -152,8 +159,9 @@ final class AppModel {
         do {
             let all = try store.listTasks(includeDone: true)
             open = all.filter { $0.status == "open" }
-            done = all.filter { $0.status == "done" }
-            completing.subtract(done.map(\.id))
+            done = all.filter { $0.isDone && !$0.doneByAgent }
+            agentDone = all.filter(\.doneByAgent)
+            completing.subtract((done + agentDone).map(\.id))
             orderByPriority = try store.getOrderByPriority()
             protectTasks = try store.getProtectTasks()
             lastSeenAt = Int64(try store.getSetting(key: "last_seen_at") ?? "") ?? 0
@@ -387,6 +395,9 @@ extension TaskPatch {
 
 extension TodoTask {
     var isDone: Bool { status == "done" }
+
+    /// Completed by an agent rather than the user.
+    var doneByAgent: Bool { isDone && doneBy != nil && doneBy != "You" }
 
     /// Added by an agent rather than the user; only these can be rejected.
     var isAgentTask: Bool { addedBy != "You" }

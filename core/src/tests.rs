@@ -132,6 +132,44 @@ fn archive_done_and_restore_via_undo() {
 }
 
 #[test]
+fn done_by_records_who_completed_and_survives_edits() {
+    let (_d, s) = store();
+    let a = s.add_task(input("a", None), USER.into(), None).unwrap();
+    let b = s.add_task(input("b", Some("ref-b")), "Claude".into(), None).unwrap();
+    assert_eq!(s.set_done(a.id.clone(), true, USER.into(), None, None).unwrap().done_by.as_deref(), Some(USER));
+    assert_eq!(s.set_done(b.id.clone(), true, "Claude".into(), None, None).unwrap().done_by.as_deref(), Some("Claude"));
+    // A later edit to the done task doesn't change who completed it.
+    s.upsert_task(TaskInput { summary: Some("more".into()), ..input("b", Some("ref-b")) }, "Other".into(), None).unwrap();
+    let done = s.list_tasks(true).unwrap();
+    assert_eq!(done.iter().find(|t| t.id == b.id).unwrap().done_by.as_deref(), Some("Claude"));
+    // Agent-done tasks clear like any other.
+    assert_eq!(s.archive_done(now_ms() + 1).unwrap(), 2);
+    s.undo_last().unwrap();
+    assert_eq!(s.set_done(b.id.clone(), false, USER.into(), None, None).unwrap().done_by, None);
+    s.undo_last().unwrap();
+    assert_eq!(s.list_tasks(true).unwrap().iter().find(|t| t.id == b.id).unwrap().done_by.as_deref(), Some("Claude"));
+}
+
+#[test]
+fn version_3_database_backfills_done_by() {
+    unsafe { std::env::set_var("TODO_NO_NOTIFY", "1") };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v3.db");
+    {
+        let c = Connection::open(&path).unwrap();
+        c.execute_batch(&format!("{SCHEMA} {SCHEMA_V2} {SCHEMA_V3} PRAGMA user_version = 3;")).unwrap();
+        c.execute(
+            "INSERT INTO tasks (id, title, rank, priority, status, unread, last_move, added_by, updated_by, done_at, created_at, updated_at)
+             VALUES ('t1', 'x', 1, 2, 'done', 0, 0, 'Claude', 'Claude', 1, 1, 1)",
+            [],
+        )
+        .unwrap();
+    }
+    let s = TodoStore::open(Some(path.to_string_lossy().into())).unwrap();
+    assert_eq!(s.list_tasks(true).unwrap()[0].done_by.as_deref(), Some("Claude"));
+}
+
+#[test]
 fn delete_then_undo_restores() {
     let (_d, s) = store();
     let a = s.add_task(input("a", Some("ref")), "Claude".into(), None).unwrap();
@@ -394,7 +432,7 @@ fn version_1_database_migrates() {
     let s = TodoStore::open(Some(path.to_string_lossy().into())).unwrap();
     s.add_learning("works".into()).unwrap();
     let v: i64 = s.conn.lock().unwrap().pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
-    assert_eq!(v, 3);
+    assert_eq!(v, 4);
 }
 
 #[test]

@@ -279,13 +279,18 @@ struct TaskListView: View {
                         }
                         row(t, index: i).opacity(i >= todayCount && !model.isFiltering ? 0.78 : 1)
                     }
-                    if model.isFiltering && rows.isEmpty && model.shownDone.isEmpty {
+                    if model.isFiltering && rows.isEmpty && model.shownDone.isEmpty && model.shownAgentDone.isEmpty {
                         Text("No matches").font(.callout).foregroundStyle(.secondary).padding(.top, 40)
                     } else if model.open.isEmpty {
                         Text("Nothing to do. Agents will add tasks here.")
                             .font(.callout).foregroundStyle(.secondary).padding(.top, 40)
                     }
-                    if !model.shownDone.isEmpty { doneSection }
+                    if !model.shownAgentDone.isEmpty {
+                        doneSection("Done by agents", model.shownAgentDone, expanded: Bindable(model).agentDoneExpanded)
+                    }
+                    if !model.shownDone.isEmpty {
+                        doneSection("Done today", model.shownDone, expanded: Bindable(model).doneExpanded, shortcut: .toggleDoneSection)
+                    }
                 }
                 .animation(.snappy(duration: 0.25), value: model.shownOpen.map(\.id))
                 .padding(.horizontal, 8)
@@ -641,15 +646,15 @@ struct TaskListView: View {
         .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
-    /// Search results include matching done tasks.
-    private var doneShown: Bool { model.doneExpanded || model.isFiltering }
-
-    private var doneSection: some View {
-        VStack(spacing: 2) {
-            Button { withAnimation(.snappy) { model.doneExpanded.toggle() } } label: {
+    /// A collapsible section of done tasks. Search results include matching done tasks, whether expanded or not.
+    private func doneSection(_ title: String, _ tasks: [TodoTask], expanded: Binding<Bool>, shortcut: KeyAction? = nil) -> some View {
+        let shown = expanded.wrappedValue || model.isFiltering
+        let help = expanded.wrappedValue ? "Hide \(title.lowercased())" : "Show \(title.lowercased())"
+        return VStack(spacing: 2) {
+            Button { withAnimation(.snappy) { expanded.wrappedValue.toggle() } } label: {
                 HStack {
-                    Text("Done today · \(model.shownDone.count)").font(.caption.weight(.semibold))
-                    Image(systemName: doneShown ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
+                    Text("\(title) · \(tasks.count)").font(.caption.weight(.semibold))
+                    Image(systemName: shown ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
                     Spacer()
                     Text(prefs.clearDone == .never ? "" : prefs.clearDone == .midnight ? "Clears at midnight" : "Clears after 24 h")
                         .font(.caption)
@@ -659,10 +664,10 @@ struct TaskListView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .keyHelp(prefs, model.doneExpanded ? "Hide done tasks" : "Show done tasks", .toggleDoneSection)
+            .optionalKeyHelp(prefs, help, shortcut)
             .padding(.top, 10)
-            if doneShown {
-                ForEach(model.shownDone, id: \.id) { t in
+            if shown {
+                ForEach(tasks, id: \.id) { t in
                     TaskRow(task: t, chip: nil, highlighted: model.highlightedId == t.id && !addFocused && !searchFocused, prefs: prefs,
                             onToggle: { model.toggleDone(t) }, onOpen: { controller.engage(); model.select(t) })
                         .onHover { if $0 { model.hoverHighlight(t.id) } }
@@ -743,6 +748,8 @@ struct TaskRow: View {
                         .lineLimit(1)
                     if !task.meta.isEmpty && !task.isDone {
                         Text(task.meta).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    } else if task.doneByAgent, let by = task.doneBy {
+                        Text("Done by \(by)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
