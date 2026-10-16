@@ -172,6 +172,25 @@ fn agent_managed_sources_by_name() {
 }
 
 #[test]
+fn user_edits_and_deletes_sources_by_id() {
+    let (_d, s) = store();
+    let slack = s.upsert_source_by_name("Slack".into(), "Messages".into(), "DMs".into(), true).unwrap();
+    let gmail = s.upsert_source_by_name("Gmail".into(), "Email".into(), "".into(), true).unwrap();
+    let renamed = s
+        .save_source(Source { name: " Email ".into(), instructions: "Replies".into(), enabled: false, ..gmail.clone() })
+        .unwrap();
+    assert_eq!((renamed.id.as_str(), renamed.position, renamed.name.as_str()), (gmail.id.as_str(), gmail.position, "Email"));
+    assert!(!s.list_sources().unwrap()[1].enabled);
+    // Agents find sources by name, so names stay unique and non-empty.
+    assert!(s.save_source(Source { name: "SLACK".into(), ..gmail.clone() }).is_err());
+    assert!(s.save_source(Source { name: "  ".into(), ..gmail.clone() }).is_err());
+    assert!(s.save_source(Source { name: "slack".into(), ..slack.clone() }).is_ok(), "renaming a source to its own name in another case");
+    s.delete_source(gmail.id).unwrap();
+    let names: Vec<String> = s.list_sources().unwrap().into_iter().map(|x| x.name).collect();
+    assert_eq!(names, ["slack"]);
+}
+
+#[test]
 fn schedule_and_discovery_prompts_are_agent_agnostic() {
     let (_d, s) = store();
     let p = s.render_setup_prompt().unwrap();

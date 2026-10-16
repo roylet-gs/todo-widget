@@ -349,13 +349,14 @@ struct ShortcutRecorder: View {
     }
 }
 
-// MARK: - Sources (managed by your agent)
+// MARK: - Sources (added by agents, editable here)
 
 struct SourcesPane: View {
     let model: AppModel
+    @State private var confirmDelete: Source?
 
     var body: some View {
-        PaneHeader(title: "Sources", subtitle: "Your agent manages these. Run the discovery prompt in any agent to add, change or remove sources. Every scheduled run checks them.")
+        PaneHeader(title: "Sources", subtitle: "Agents add these with the discovery prompt. Edit or delete them here, or ask your agent. Every scheduled run checks them.")
         Card {
             if model.sources.isEmpty {
                 Text("No sources yet. Run the discovery prompt below in your agent.")
@@ -363,15 +364,26 @@ struct SourcesPane: View {
             }
             ForEach(Array(model.sources.enumerated()), id: \.element.id) { i, s in
                 if i > 0 { Divider() }
-                SourceRow(source: s).padding(.horizontal, 16).padding(.vertical, 12)
+                SourceRow(source: s, model: model) { confirmDelete = s }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
             }
+        }
+        .confirmationDialog("Delete “\(confirmDelete?.name ?? "")”?", isPresented: Binding(
+            get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let s = confirmDelete { model.deleteSource(s) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Scheduled runs stop checking it. Your agent can add it again.")
         }
         PromptBlock(title: "Discovery prompt", subtitle: "Paste this into any agent connected to the todo MCP. It will ask you which sources to check and save them here.",
                     text: model.store.renderDiscoveryPrompt())
     }
 }
 
-struct SourceRow: View {
+/// A source as the agent saved it, read-only (setup shows these as they arrive).
+struct SourceSummary: View {
     let source: Source
 
     var body: some View {
@@ -389,6 +401,73 @@ struct SourceRow: View {
             }
             Spacer(minLength: 0)
         }
+    }
+}
+
+/// One source, edited in place; text saves on Return or when a field loses focus.
+struct SourceRow: View {
+    let source: Source
+    let model: AppModel
+    let onDelete: () -> Void
+    @State private var name = ""
+    @State private var kind = ""
+    @State private var instructions = ""
+    @FocusState private var focus: Field?
+
+    private enum Field { case name, kind, instructions }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    TextField("Name", text: $name)
+                        .fontWeight(.semibold).fixedSize()
+                        .focused($focus, equals: .name)
+                        .accessibilityLabel("Source name")
+                    TextField("Kind", text: $kind)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .focused($focus, equals: .kind)
+                        .accessibilityLabel("Kind")
+                }
+                TextField("What to look for", text: $instructions, axis: .vertical)
+                    .font(.callout).foregroundStyle(.secondary)
+                    .focused($focus, equals: .instructions)
+                    .accessibilityLabel("Instructions")
+            }
+            .textFieldStyle(.plain)
+            .onSubmit(save)
+            .onChange(of: focus) { old, new in if old != nil && old != new { save() } }
+            Spacer(minLength: 0)
+            Toggle("", isOn: Binding(get: { source.enabled }, set: { on in
+                model.updateSource(Source(id: source.id, name: source.name, kind: source.kind,
+                                          instructions: source.instructions, enabled: on, position: source.position))
+            }))
+            .toggleStyle(.switch).controlSize(.mini).labelsHidden()
+            .help(source.enabled ? "Checked on every run" : "Skipped by runs")
+            .accessibilityLabel("Check \(source.name) on every run")
+            Button(action: onDelete) { Image(systemName: "trash") }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .help("Delete source")
+                .accessibilityLabel("Delete \(source.name)")
+        }
+        .onAppear(perform: sync)
+        .onChange(of: source) { _, _ in if focus == nil { sync() } }
+    }
+
+    private func sync() {
+        name = source.name
+        kind = source.kind
+        instructions = source.instructions
+    }
+
+    private func save() {
+        let edited = Source(id: source.id, name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                            kind: kind.trimmingCharacters(in: .whitespacesAndNewlines),
+                            instructions: instructions.trimmingCharacters(in: .whitespacesAndNewlines),
+                            enabled: source.enabled, position: source.position)
+        guard edited != source else { return }
+        // An empty or clashing name puts the stored one back.
+        if edited.name.isEmpty || !model.updateSource(edited) { sync() }
     }
 }
 

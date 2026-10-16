@@ -22,7 +22,7 @@ final class AppModel {
     private(set) var recentRuns: [ChangeGroup] = []
     private(set) var lastSeenAt: Int64 = 0
     private(set) var lastRunAt: Int64?
-    /// Sources the agent manages through the MCP; shown read-only and refreshed live.
+    /// Sources agents manage through the MCP; the user can edit or delete them. Refreshed live.
     private(set) var sources: [Source] = []
 
     var selectedId: String?
@@ -182,6 +182,25 @@ final class AppModel {
         perform("Edited “\(task.title)”") { _ = try $0.updateTask(id: task.id, patch: patch, actor: "You", runId: nil) }
     }
 
+    /// Sources aren't in the event log, so these can't be undone. Returns whether the save worked.
+    @discardableResult
+    func updateSource(_ source: Source) -> Bool {
+        do {
+            _ = try store.saveSource(source: source)
+            return true
+        } catch {
+            showToast(errorText(error), undoable: false)
+            return false
+        }
+    }
+
+    func deleteSource(_ source: Source) {
+        do {
+            try store.deleteSource(id: source.id)
+            showToast("Deleted source “\(source.name)”", undoable: false)
+        } catch { showToast(errorText(error), undoable: false) }
+    }
+
     /// Drag-and-drop: move `id` to `index` in the open list.
     func move(_ id: String, to index: Int) {
         guard let t = open.first(where: { $0.id == id }), let from = open.firstIndex(where: { $0.id == id }), from != index else { return }
@@ -259,6 +278,12 @@ final class AppModel {
             guard !_Concurrency.Task.isCancelled else { return }
             self?.toast = nil
         }
+    }
+
+    /// The core's message for a validation error, so the user doesn't see the enum case.
+    private func errorText(_ error: Error) -> String {
+        if case let TodoError.Invalid(message) = error { return message }
+        return "\(error)"
     }
 
     private func perform(_ label: String, _ body: (TodoStore) throws -> Void) {

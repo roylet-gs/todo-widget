@@ -191,7 +191,7 @@ struct SetupView: View {
                 }
                 .padding(.bottom, 8)
                 ForEach(model.sources, id: \.id) { s in
-                    SourceRow(source: s).padding(.vertical, 6)
+                    SourceSummary(source: s).padding(.vertical, 6)
                 }
             }
             .padding(14)
