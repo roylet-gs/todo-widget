@@ -467,6 +467,21 @@ def keyboard_navigate_and_open(app: App):
 
 
 @spec
+def mouse_back_leaves_detail(app: App):
+    app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
+    app.cmd("open_drawer")
+    s = app.cmd("select", title="Reply to Sam")
+    expect(s["selected"] == "Reply to Sam about the Q4 export format", f"selected: {s['selected']}")
+    s = app.cmd("mouse_back")
+    expect(s["handled"] and s["selected"] is None, f"mouse back should leave the detail: {s['selected']}")
+    expect(s["highlighted"] == "Reply to Sam about the Q4 export format", f"highlight kept: {s['highlighted']}")
+    app.settle()
+    app.snapshot("drawer", "after-mouse-back")
+    s = app.cmd("mouse_back")
+    expect(not s["handled"] and s["drawerOpen"], f"mouse back on the list should do nothing: handled={s['handled']}")
+
+
+@spec
 def keyboard_open_source(app: App):
     app.cmd("set_pref", key="pinned", value=True)  # stray real clicks would otherwise close it
     app.cmd("open_drawer")

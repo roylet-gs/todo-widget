@@ -9,7 +9,7 @@ final class DrawerKeys {
     private let model: AppModel
     private let prefs: Preferences
     private unowned let controller: DrawerController
-    private var monitor: Any?
+    private var monitors: [Any] = []
 
     init(model: AppModel, prefs: Preferences, controller: DrawerController) {
         self.model = model
@@ -19,16 +19,30 @@ final class DrawerKeys {
 
     func install(for panel: NSPanel) {
         remove()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self, weak panel] event in
             guard let panel, event.window === panel, let b = KeyBinding(event: event) else { return event }
             let handled = MainActor.assumeIsolated { panel.isKeyWindow && self?.handle(b) == true }
             return handled ? nil : event
-        }
+        }) { monitors.append(m) }
+        // The mouse's back button (button 3). No key-window check: the click lands on the panel either way.
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown, handler: { [weak self, weak panel] event in
+            guard let panel, event.window === panel, event.buttonNumber == 3 else { return event }
+            let handled = MainActor.assumeIsolated { self?.mouseBack() == true }
+            return handled ? nil : event
+        }) { monitors.append(m) }
     }
 
     func remove() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
+    }
+
+    /// The mouse's back button: steps back out of a task's detail, like Esc. Does nothing on the list,
+    /// so a stray click never closes the drawer.
+    @discardableResult
+    func mouseBack() -> Bool {
+        guard model.selected != nil, model.rejecting == nil else { return false }
+        return perform(.back)
     }
 
     /// True while a text field in the drawer is being edited.
