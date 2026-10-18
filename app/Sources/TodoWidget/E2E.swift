@@ -271,6 +271,11 @@ final class E2EServer {
             var r = state()
             r["handled"] = handled
             return r
+        case "mouse_back":
+            let handled = s.drawer.keys.mouseBack()
+            var r = state()
+            r["handled"] = handled
+            return r
         case "focus_quick_add":
             s.drawer.keys.perform(.newTask)
         case "type_quick_add":
