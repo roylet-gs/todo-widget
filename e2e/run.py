@@ -983,9 +983,11 @@ def hover_then_space_marks_done(app: App):
     title = titles(s["open"])[1]
     s = app.cmd("hover_row", title=title)
     expect(not s["typing"], "hovering a row should leave an empty quick add")
+    app.snapshot("drawer", "hovered")
     s = app.cmd("key", key="space")
     expect(s["handled"], "space on a hovered row should be handled")
     app.wait_state(lambda s: title in titles(s["done"]), "space should mark the hovered task done")
+    app.snapshot("drawer", "marked-done")
     # A draft in quick add keeps the keyboard.
     app.cmd("focus_quick_add")
     app.cmd("type_quick_add", text="Half typed")
