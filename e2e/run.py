@@ -972,6 +972,31 @@ def hover_gives_the_drawer_the_keyboard(app: App):
 
 
 @spec
+def hover_then_space_marks_done(app: App):
+    app.cmd("set_pref", key="pinned", value=True)
+    s = app.cmd("open_drawer")
+    app.settle()
+    s = app.state()
+    if not s["typing"]:
+        print("    (quick add did not take focus offscreen; skipping)")
+        return
+    title = titles(s["open"])[1]
+    s = app.cmd("hover_row", title=title)
+    expect(not s["typing"], "hovering a row should leave an empty quick add")
+    app.snapshot("drawer", "hovered")
+    s = app.cmd("key", key="space")
+    expect(s["handled"], "space on a hovered row should be handled")
+    app.wait_state(lambda s: title in titles(s["done"]), "space should mark the hovered task done")
+    app.snapshot("drawer", "marked-done")
+    # A draft in quick add keeps the keyboard.
+    app.cmd("focus_quick_add")
+    app.cmd("type_quick_add", text="Half typed")
+    app.settle()
+    s = app.cmd("hover_row", title=titles(app.state()["open"])[0])
+    expect(s["typing"], "hovering should not steal the keyboard from a draft")
+
+
+@spec
 def done_tick_animation(app: App):
     app.cmd("open_drawer")
     app.cmd("toggle_done", title="Prep notes")

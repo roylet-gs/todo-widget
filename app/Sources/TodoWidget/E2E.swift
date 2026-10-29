@@ -276,6 +276,13 @@ final class E2EServer {
             var r = state()
             r["handled"] = handled
             return r
+        case "hover_row":
+            // Pointer moved onto a row (hover tracking itself ignores the real pointer under e2e).
+            guard let t = s.model.visibleOrder.first(where: { $0.title.hasPrefix(cmd["title"] as? String ?? "") }) else {
+                throw Failure(description: "no row \(cmd["title"] ?? "")")
+            }
+            s.model.highlightedId = t.id
+            s.drawer.leaveEmptyQuickAdd()
         case "focus_quick_add":
             s.drawer.keys.perform(.newTask)
         case "type_quick_add":
