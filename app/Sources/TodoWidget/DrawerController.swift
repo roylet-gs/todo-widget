@@ -363,6 +363,20 @@ final class DrawerController {
         drawerPanel.makeFirstResponder(nil)
     }
 
+    /// Hovering a row puts the cursor on it, and takes the keyboard out of an empty quick add so the
+    /// row's shortcuts (Space to mark done…) work on it.
+    func rowHovered(_ id: String) {
+        guard model.hoverHighlight(id) else { return }
+        leaveEmptyQuickAdd()
+    }
+
+    /// The drawer opens in quick add; leave it for the list unless a draft has been typed.
+    func leaveEmptyQuickAdd() {
+        guard firstResponderIsText, model.selectedId == nil, !model.searching, model.rejecting == nil,
+              model.quickAddDraft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        endTyping()
+    }
+
     /// When unpinned, a click anywhere outside the drawer (other apps, the desktop, or our
     /// own settings window) collapses it. Global mouse monitors need no extra permission.
     private func installClickAway() {
